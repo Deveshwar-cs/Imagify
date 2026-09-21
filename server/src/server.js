@@ -17,7 +17,7 @@ app.use(
 
 app.use(express.json());
 
-app.get("api/health", (req, res) => {
+app.get("/api/health", (req, res) => {
   res.json({
     success: true,
     message: "Pixora api is running",
