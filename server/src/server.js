@@ -4,8 +4,8 @@ import dotenv from "dotenv";
 import imageRoutes from "./routes/image.routes.js";
 import connectDB from "./config/database.js";
 
-const app = express();
 dotenv.config();
+const app = express();
 connectDB();
 const PORT = process.env.PORT || 5000;
 
@@ -28,7 +28,6 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-app.use("/uploads", express.static("uploads"));
 app.use("/api/images", imageRoutes);
 
 app.use((error, req, res, next) => {

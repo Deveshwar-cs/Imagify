@@ -1,8 +1,13 @@
 import sharp from "sharp";
 import Image from "../models/image.models.js";
 import fs from "fs/promises";
-import path from "path";
-import {error} from "console";
+import cloudinary from "../config/cloudinary.js";
+import {
+  createTempFilePath,
+  uploadToCloudinary,
+  downloadImageToTemp,
+  cleanupTempFile,
+} from "../services/image.service.js";
 
 export const uploadImage = async (req, res) => {
   try {
@@ -13,34 +18,53 @@ export const uploadImage = async (req, res) => {
       });
     }
 
-    const metadata = await sharp(req.file.path).metadata();
+    const metadata = await sharp(req.file.buffer).metadata();
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: "imagify/originals",
+          resource_type: "image",
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        },
+      );
+
+      uploadStream.end(req.file.buffer);
+    });
 
     const image = await Image.create({
       originalName: req.file.originalname,
-      fileName: req.file.filename,
+      fileName: result.public_id,
       mimeType: req.file.mimetype,
       size: req.file.size,
       width: metadata.width,
       height: metadata.height,
-      path: req.file.path,
+      url: result.secure_url,
     });
 
     return res.status(201).json({
       success: true,
-      message: "Image uploaded succcessfully",
+      message: "Image uploaded successfully",
+
       image: {
         id: image._id,
         originalName: image.originalName,
         fileName: image.fileName,
         mimeType: image.mimeType,
         size: image.size,
-        width: metadata.width,
-        height: metadata.height,
-        path: req.file.path,
+        width: image.width,
+        height: image.height,
+        url: image.url,
       },
     });
   } catch (error) {
     console.log("Upload image error:", error);
+
     return res.status(500).json({
       success: false,
       message: "Failed to upload image",
@@ -49,6 +73,8 @@ export const uploadImage = async (req, res) => {
 };
 
 export const resizeImage = async (req, res) => {
+  let inputPath;
+  let outputPath;
   try {
     const {imageId} = req.params;
     const {width, height} = req.body;
@@ -86,9 +112,16 @@ export const resizeImage = async (req, res) => {
       });
     }
 
-    const outputFileName = `resize-${Date.now()}-${image.fileName}`;
+    inputPath = await downloadImageToTemp(image.url);
+    const extensionMap = {
+      "image/jpeg": ".jpg",
+      "image/png": ".png",
+      "image/webp": ".webp",
+    };
 
-    const outPath = path.join("uploads", outputFileName);
+    const extension = extensionMap[image.mimeType] || ".jpg";
+
+    outputPath = createTempFilePath(extension);
 
     const resizeOptions = {};
 
@@ -99,24 +132,27 @@ export const resizeImage = async (req, res) => {
       resizeOptions.height = parsedHeight;
     }
 
-    await sharp(image.path)
+    await sharp(inputPath)
       .resize({
         ...resizeOptions,
         fit: "inside",
         withoutEnlargement: false,
       })
-      .toFile(outPath);
+      .toFile(outputPath);
 
-    const metadata = await sharp(outPath).metadata();
+    const metadata = await sharp(outputPath).metadata();
 
-    const status = await fs.stat(outPath);
+    const status = await fs.stat(outputPath);
 
-    const processedUrl = `http://localhost:${process.env.PORT || 5000}/${outPath.replaceAll("\\", "/")}`;
-
+    // Upload processed image to Cloudinary
+    const result = await uploadToCloudinary(
+      outputPath,
+      "imagify/processed/resize",
+    );
     const processedImage = {
       operation: "resize",
-      fileName: outputFileName,
-      path: outPath,
+      fileName: result.public_id,
+      url: result.secure_url,
       size: status.size,
       width: metadata.width,
       height: metadata.height,
@@ -136,9 +172,9 @@ export const resizeImage = async (req, res) => {
         width: image.width,
         height: image.height,
         mimeType: image.mimeType,
-        url: `http://localhost:${process.env.PORT || 5000}/${image.path}`,
+        url: image.url,
       },
-      processed: {...processedImage, url: processedUrl},
+      processed: {...processedImage, url: result.secure_url},
     });
   } catch (error) {
     console.error("Resize image error", error);
@@ -147,10 +183,16 @@ export const resizeImage = async (req, res) => {
       success: false,
       message: "Failed to resize image",
     });
+  } finally {
+    // Remove temporary files
+    await cleanupTempFile(inputPath);
+    await cleanupTempFile(outputPath);
   }
 };
 
 export const compressImage = async (req, res) => {
+  let inputPath;
+  let outputPath;
   try {
     const {imageId} = req.params;
     const {level = "medium"} = req.body;
@@ -187,11 +229,19 @@ export const compressImage = async (req, res) => {
       });
     }
 
-    const outputFileName = `compress-${Date.now()}-${image.fileName}`;
+    inputPath = await downloadImageToTemp(image.url);
 
-    const outputPath = path.join("uploads", outputFileName);
+    const extensionMap = {
+      "image/jpeg": ".jpeg",
+      "image/png": "png",
+      "image/webp": ".webp",
+    };
 
-    let imageProcessor = sharp(image.path);
+    const extension = extensionMap[image.mimeType] || "jpeg";
+
+    outputPath = createTempFilePath(extension);
+
+    let imageProcessor = sharp(inputPath);
 
     switch (image.mimeType) {
       case "image/jpeg":
@@ -228,10 +278,14 @@ export const compressImage = async (req, res) => {
 
     const stats = await fs.stat(outputPath);
 
+    const result = await uploadToCloudinary(
+      outputPath,
+      "imagify/processed/compress",
+    );
     const processedImage = {
       operation: "compress",
-      fileName: outputFileName,
-      path: outputPath,
+      fileName: result.public_id,
+      url: result.secure_url,
       size: stats.size,
       width: metadata.width,
       height: metadata.height,
@@ -241,10 +295,6 @@ export const compressImage = async (req, res) => {
     image.processedImages.push(processedImage);
 
     await image.save();
-
-    const processedUrl = `http://localhost:${
-      process.env.PORT || 5000
-    }/${outputPath.replaceAll("\\", "/")}`;
 
     return res.status(200).json({
       success: true,
@@ -256,12 +306,12 @@ export const compressImage = async (req, res) => {
         width: image.width,
         height: image.height,
         mimeType: image.mimeType,
-        url: `http://localhost:${process.env.PORT || 5000}/${image.path}`,
+        url: image.url,
       },
 
       processed: {
         ...processedImage,
-        url: processedUrl,
+        url: result.secure_url,
       },
     });
   } catch (error) {
@@ -271,27 +321,40 @@ export const compressImage = async (req, res) => {
       success: false,
       message: "Failed to compress image",
     });
+  } finally {
+    await cleanupTempFile(inputPath);
+    await cleanupTempFile(outputPath);
   }
 };
 
 export const improveQuality = async (req, res) => {
+  let inputPath;
+  let outputPath;
   try {
     const {imageId} = req.params;
     const image = await Image.findById(imageId);
-    console.log(image);
     if (!image) {
-      res.json(404).json({
+      return res.status(404).json({
         success: false,
         message: "Image not found!",
       });
     }
 
-    const outputFileName = `quality-${Date.now()}-${image.fileName}`;
+    inputPath = await downloadImageToTemp(image.url);
+    const extensionMap = {
+      "image/jpeg": ".jpeg",
+      "image/png": ".png",
+      "image/webp": ".webp",
+    };
 
-    const outputPath = path.join("uploads", outputFileName);
-    console.log("image.path:", image.path);
-    console.log("outputPath:", outputPath);
-    await sharp(image.path)
+    const extension = extensionMap[image.mimeType] || ".jpeg";
+
+    outputPath = createTempFilePath(extension);
+    // const outputFileName = `quality-${Date.now()}-${image.fileName}`;
+
+    // const outputPath = path.join("uploads", outputFileName);
+
+    await sharp(inputPath)
       .sharpen({sigma: 1.2, m1: 1, m2: 2})
       .toFile(outputPath);
 
@@ -299,10 +362,14 @@ export const improveQuality = async (req, res) => {
 
     const stats = await fs.stat(outputPath);
 
+    const result = await uploadToCloudinary(
+      outputPath,
+      "imagify/processed/quality",
+    );
     const processedImage = {
       operation: "quality",
-      fileName: outputFileName,
-      path: outputPath,
+      fileName: result.public_id,
+      url: result.secure_url,
       size: stats.size,
       width: metadata.width,
       height: metadata.height,
@@ -312,10 +379,6 @@ export const improveQuality = async (req, res) => {
     image.processedImages.push(processedImage);
 
     await image.save();
-
-    const processedUrl = `http://localhost:${
-      process.env.PORT || 5000
-    }/${outputPath.replaceAll("\\", "/")}`;
 
     return res.status(200).json({
       success: true,
@@ -327,12 +390,12 @@ export const improveQuality = async (req, res) => {
         width: image.width,
         height: image.height,
         mimeType: image.mimeType,
-        url: `http://localhost:${process.env.PORT || 5000}/${image.path}`,
+        url: image.url,
       },
 
       processed: {
         ...processedImage,
-        url: processedUrl,
+        url: result.secure_url,
       },
     });
   } catch (error) {
@@ -341,10 +404,15 @@ export const improveQuality = async (req, res) => {
       success: false,
       message: "Unable to Improve quality",
     });
+  } finally {
+    await cleanupTempFile(inputPath);
+    await cleanupTempFile(outputPath);
   }
 };
 
 export const upscaleImage = async (req, res) => {
+  let inputPath;
+  let outputPath;
   try {
     const {imageId} = req.params;
     const {scale = 2} = req.body;
@@ -367,14 +435,25 @@ export const upscaleImage = async (req, res) => {
       });
     }
 
+    inputPath = await downloadImageToTemp(image.url);
+    const extensionMap = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+    };
+
+    const extension = extensionMap[image.mimeType] || ".jpg";
+
+    outputPath = createTempFilePath(extension);
+
     const newWidth = image.width * parsedScale;
     const newHeight = image.height * parsedScale;
 
-    const outputFileName = `upscale-${parsedScale}x-${Date.now()}-${image.fileName}`;
+    // const outputFileName = `upscale-${parsedScale}x-${Date.now()}-${image.fileName}`;
 
-    const outputPath = path.join("uploads", outputFileName);
+    // const outputPath = path.join("uploads", outputFileName);
 
-    await sharp(image.path)
+    await sharp(inputPath)
       .resize({
         width: newWidth,
         height: newHeight,
@@ -383,12 +462,16 @@ export const upscaleImage = async (req, res) => {
       .toFile(outputPath);
 
     const metadata = await sharp(outputPath).metadata();
-
     const stats = await fs.stat(outputPath);
+
+    const result = await uploadToCloudinary(
+      outputPath,
+      `imagify/processed/upscale/${parsedScale}x`,
+    );
     const processedImage = {
       operation: `upscale-${parsedScale}x`,
-      fileName: outputFileName,
-      path: outputPath,
+      fileName: result.public_id,
+      url: result.secure_url,
       size: stats.size,
       width: metadata.width,
       height: metadata.height,
@@ -398,10 +481,6 @@ export const upscaleImage = async (req, res) => {
     image.processedImages.push(processedImage);
 
     await image.save();
-
-    const processedUrl = `http://localhost:${
-      process.env.PORT || 5000
-    }/${outputPath.replaceAll("\\", "/")}`;
 
     return res.status(200).json({
       success: true,
@@ -413,12 +492,12 @@ export const upscaleImage = async (req, res) => {
         width: image.width,
         height: image.height,
         mimeType: image.mimeType,
-        url: `http://localhost:${process.env.PORT || 5000}/${image.path}`,
+        url: image.url,
       },
 
       processed: {
         ...processedImage,
-        url: processedUrl,
+        url: result.secure_url,
       },
     });
   } catch (error) {
@@ -426,5 +505,8 @@ export const upscaleImage = async (req, res) => {
     return res
       .status(500)
       .json({success: false, message: "Unable to upscale image"});
+  } finally {
+    await cleanupTempFile(inputPath);
+    await cleanupTempFile(outputPath);
   }
 };

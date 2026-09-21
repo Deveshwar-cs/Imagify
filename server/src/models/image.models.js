@@ -1,65 +1,79 @@
 import mongoose from "mongoose";
 
-const imageSchema = mongoose.Schema(
+const imageSchema = new mongoose.Schema(
   {
     originalName: {
       type: String,
       required: true,
     },
+
     fileName: {
       type: String,
       required: true,
     },
+
     mimeType: {
       type: String,
       required: true,
     },
+
     size: {
       type: Number,
       required: true,
     },
+
     width: {
       type: Number,
       required: true,
     },
+
     height: {
       type: Number,
       required: true,
     },
-    path: {
+
+    url: {
       type: String,
       required: true,
     },
+
     processedImages: [
       {
         operation: {
           type: String,
           required: true,
         },
+
         fileName: {
           type: String,
           required: true,
         },
-        path: {
+
+        url: {
           type: String,
           required: true,
         },
+
         size: {
           type: Number,
           required: true,
         },
+
         width: {
           type: Number,
           required: true,
         },
+
         height: {
           type: Number,
           required: true,
         },
+
         mimeType: {
           type: String,
           required: true,
         },
+
         createdAt: {
           type: Date,
           default: Date.now,
