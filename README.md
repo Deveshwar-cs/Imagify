@@ -1,157 +1,128 @@
 # Imagify
 
-Imagify is a modern image processing platform that allows users to upload images and perform common optimization and enhancement operations through a simple SaaS-style interface.
+Imagify is a modern image-processing platform that lets users upload images and perform common optimization and enhancement operations through a SaaS-style interface.
 
 ## Features
 
 - Upload JPG, PNG, and WEBP images
-- Maximum upload size: 10 MB
-- Resize images with custom width and height
-- Maintain image aspect ratio
-- Compress images with selectable compression levels
-- Improve image quality using sharpening
+- 10 MB upload limit
+- Resize with custom dimensions and aspect-ratio preservation
+- Compress with low, medium, and high levels
+- Improve image quality with sharpening
 - Upscale images by 2× or 3×
-- Preview original and processed images
-- Display image dimensions and file size
+- Original vs processed preview
+- Image dimensions and file size
 - Download processed images
-- Cloudinary-based image storage
+- Cloudinary image storage
 - Loading, success, and error states
-- Responsive SaaS-style UI
-- Local HTTPS development environment
+- Responsive UI
+- Local HTTPS development with `https://imagify.com`
 
 ## Tech Stack
 
-### Frontend
+**Frontend**
 
 - React
 - Vite
 - Tailwind CSS
 - Axios
 
-### Backend
+**Backend**
 
 - Node.js
 - Express.js
-- MongoDB
-- Mongoose
+- MongoDB / Mongoose
 - Sharp
 - Multer
 - Cloudinary
 
-### Infrastructure
+**Infrastructure**
 
 - Nginx
 - mkcert
 - Local HTTPS
-- Custom local domain: `imagify.com`
 
 ## Project Structure
 
 ```text
 Imagify/
 ├── client/
-│   ├── src/
-│   │   ├── components/
-│   │   ├── services/
-│   │   └── ...
-│   └── ...
-│
+│   └── src/
 ├── server/
-│   ├── src/
-│   │   ├── config/
-│   │   │   ├── cloudinary.js
-│   │   │   ├── database.js
-│   │   │   └── multer.js
-│   │   │
-│   │   ├── controllers/
-│   │   │   └── image.controller.js
-│   │   │
-│   │   ├── models/
-│   │   │   └── image.model.js
-│   │   │
-│   │   ├── routes/
-│   │   │   └── image.routes.js
-│   │   │
-│   │   ├── services/
-│   │   │   └── image.service.js
-│   │   │
-│   │   └── server.js
-│   │
-│   └── package.json
-│
+│   └── src/
+│       ├── config/
+│       ├── controllers/
+│       ├── models/
+│       ├── routes/
+│       ├── services/
+│       └── server.js
 ├── nginx/
 │   ├── servers/
 │   └── ssl/
-│
 └── README.md
 ```
 
 ## Image Processing Flow
 
-Imagify uses Cloudinary for persistent image storage and Sharp for image processing.
-
-The general processing flow is:
-
 ```text
-User uploads image
-        ↓
+Upload
+  ↓
 Multer memoryStorage
-        ↓
+  ↓
 Cloudinary
-        ↓
-MongoDB stores image metadata + Cloudinary URL
-        ↓
-User selects processing operation
-        ↓
-Download original image temporarily
-        ↓
-Sharp processes the image
-        ↓
-Upload processed image to Cloudinary
-        ↓
-MongoDB stores processed image metadata + URL
-        ↓
-Frontend displays processed image
+  ↓
+MongoDB metadata + URL
+  ↓
+Select operation
+  ↓
+Download image temporarily
+  ↓
+Sharp processing
+  ↓
+Cloudinary
+  ↓
+MongoDB processed-image metadata
+  ↓
+Preview / Download
 ```
 
-Temporary files created during processing are removed after the operation completes.
+Temporary processing files are removed after each operation.
+
+## API
+
+| Operation | Endpoint                             |
+| --------- | ------------------------------------ |
+| Upload    | `POST /api/images/upload`            |
+| Resize    | `POST /api/images/:imageId/resize`   |
+| Compress  | `POST /api/images/:imageId/compress` |
+| Quality   | `POST /api/images/:imageId/quality`  |
+| Upscale   | `POST /api/images/:imageId/upscale`  |
 
 ## Local Setup
 
-### 1. Clone the repository
+### 1. Clone
 
 ```bash
 git clone https://github.com/Deveshwar-cs/Imagify.git
 cd Imagify
 ```
 
-### 2. Install frontend dependencies
+### 2. Install dependencies
 
 ```bash
 cd client
 npm install
-```
 
-### 3. Install backend dependencies
-
-```bash
 cd ../server
 npm install
 ```
 
-### 4. Configure backend environment variables
+### 3. Backend environment
 
-Create:
-
-```text
-server/.env
-```
-
-Example:
+Create `server/.env`:
 
 ```env
 PORT=5000
-
 MONGODB_URI=your_mongodb_connection_string
 
 CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
@@ -159,330 +130,279 @@ CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 ```
 
-Do not commit `.env` files or expose your Cloudinary API secret.
+### 4. Frontend environment
 
-### 5. Configure frontend environment variables
-
-Create:
-
-```text
-client/.env
-```
-
-Example:
+Create `client/.env`:
 
 ```env
 VITE_API_URL=http://localhost:5000/api
 ```
 
-### 6. Start the backend
+Never commit `.env` files or API secrets.
 
-From the `server` directory:
+### 5. Start the application
 
-```bash
-npm run dev
-```
-
-The API runs on:
-
-```text
-http://localhost:5000
-```
-
-### 7. Start the frontend
-
-Open another terminal:
-
-```bash
-cd client
-npm run dev
-```
-
-The frontend runs on:
-
-```text
-http://localhost:5173
-```
-
-## Image Processing API
-
-| Operation       | Endpoint                             |
-| --------------- | ------------------------------------ |
-| Upload          | `POST /api/images/upload`            |
-| Resize          | `POST /api/images/:imageId/resize`   |
-| Compress        | `POST /api/images/:imageId/compress` |
-| Improve Quality | `POST /api/images/:imageId/quality`  |
-| Upscale         | `POST /api/images/:imageId/upscale`  |
-
-## API Operations
-
-### Upload
-
-Accepts:
-
-- JPEG
-- PNG
-- WEBP
-
-Maximum file size:
-
-```text
-10 MB
-```
-
-Uploaded images are stored in Cloudinary under:
-
-```text
-imagify/originals/
-```
-
-MongoDB stores the image metadata and Cloudinary URL.
-
-### Resize
-
-Allows users to provide a custom width, height, or both while maintaining the image's aspect ratio.
-
-Processed images are stored under:
-
-```text
-imagify/processed/resize/
-```
-
-### Compress
-
-Supports three compression levels:
-
-```text
-low
-medium
-high
-```
-
-Processed images are stored under:
-
-```text
-imagify/processed/compress/
-```
-
-### Improve Quality
-
-Uses Sharp sharpening to enhance image details.
-
-Processed images are stored under:
-
-```text
-imagify/processed/quality/
-```
-
-### Upscale
-
-Supports:
-
-```text
-2×
-3×
-```
-
-Processed images are stored under:
-
-```text
-imagify/processed/upscale/
-```
-
-## Technical Decisions
-
-### Sharp
-
-Sharp is used for image processing because it provides efficient image transformations through a Node.js API and supports formats such as JPEG, PNG, and WEBP.
-
-Sharp handles:
-
-- Resizing
-- Compression
-- Sharpening
-- Upscaling
-- Image metadata extraction
-
-### Multer
-
-Multer handles multipart image uploads and validates:
-
-- File type
-- File size
-
-Imagify uses Multer's `memoryStorage()` so uploaded files are held in memory temporarily instead of being stored in the server's filesystem.
-
-### Cloudinary
-
-Cloudinary is used as the persistent image storage layer.
-
-Original and processed images are uploaded to Cloudinary, while MongoDB stores:
-
-- File metadata
-- Dimensions
-- File size
-- MIME type
-- Cloudinary public ID
-- Cloudinary URL
-
-This avoids depending on persistent local filesystem storage in deployed environments.
-
-### MongoDB
-
-MongoDB stores image metadata and information about processed versions rather than storing image binary data directly in the database.
-
-A stored image contains information such as:
-
-```text
-originalName
-fileName
-mimeType
-size
-width
-height
-url
-processedImages
-```
-
-### Image Processing Service
-
-Image processing helpers are separated into:
-
-```text
-server/src/services/image.service.js
-```
-
-The service handles common operations such as:
-
-- Downloading Cloudinary images temporarily
-- Uploading processed files to Cloudinary
-- Creating temporary file paths
-- Cleaning up temporary files
-
-This keeps Cloudinary and temporary-file handling reusable across processing operations.
-
-### React Local State
-
-The frontend currently uses React state and props for application state.
-
-Redux was intentionally avoided because the current application does not have enough shared global state to justify the additional complexity.
-
-### Nginx + HTTPS
-
-Nginx is used as a reverse proxy, while mkcert provides a locally trusted HTTPS certificate for the custom development domain:
-
-```text
-https://imagify.com
-```
-
-HTTP requests are redirected to HTTPS during local development.
-
-## Environment Variables
-
-### Backend
-
-```env
-PORT=5000
-MONGODB_URI=your_mongodb_connection_string
-CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
-CLOUDINARY_API_KEY=your_cloudinary_api_key
-CLOUDINARY_API_SECRET=your_cloudinary_api_secret
-```
-
-### Frontend
-
-```env
-VITE_API_URL=http://localhost:5000/api
-```
-
-Environment files containing secrets should never be committed to Git.
-
-## Development
-
-Start the frontend and backend separately during development.
-
-### Frontend
-
-```bash
-cd client
-npm run dev
-```
-
-### Backend
+Backend:
 
 ```bash
 cd server
 npm run dev
 ```
 
-## Local HTTPS
+Frontend:
 
-Imagify can be accessed locally through the custom domain:
+```bash
+cd client
+npm run dev
+```
+
+Default URLs:
+
+```text
+Frontend: http://localhost:5173
+Backend:  http://localhost:5000
+```
+
+## Task 2 — Local Domain & HTTPS
+
+Task 2 provides a production-like HTTPS environment locally.
+
+### 1. Configure local domain
+
+Edit `/etc/hosts`:
+
+```bash
+sudo nano /etc/hosts
+```
+
+Add:
+
+```text
+127.0.0.1 imagify.com
+```
+
+Verify:
+
+```bash
+ping -c 1 imagify.com
+```
+
+### 2. Install Nginx
+
+```bash
+brew install nginx
+```
+
+Create the server configuration directory:
+
+```bash
+mkdir -p /opt/homebrew/etc/nginx/servers
+```
+
+In:
+
+```text
+/opt/homebrew/etc/nginx/nginx.conf
+```
+
+make sure the `http` block contains:
+
+```nginx
+include servers/*;
+```
+
+### 3. Install mkcert
+
+```bash
+brew install mkcert
+mkcert -install
+```
+
+### 4. Generate local SSL certificate
+
+From the project root:
+
+```bash
+mkdir -p nginx/ssl
+
+mkcert \
+  -key-file nginx/ssl/imagify-key.pem \
+  -cert-file nginx/ssl/imagify.pem \
+  imagify.com localhost 127.0.0.1
+```
+
+Keep `nginx/ssl/` in `.gitignore`.
+
+### 5. Configure Nginx
+
+Create:
+
+```text
+/opt/homebrew/etc/nginx/servers/imagify.conf
+```
+
+Add:
+
+```nginx
+server {
+    listen 80;
+    server_name imagify.com;
+
+    return 301 https://imagify.com$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name imagify.com;
+
+    ssl_certificate /Users/deveshwarthakur/Desktop/Office/Imagify/nginx/ssl/imagify.pem;
+    ssl_certificate_key /Users/deveshwarthakur/Desktop/Office/Imagify/nginx/ssl/imagify-key.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:5173;
+
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+> Update the certificate paths if the project is located somewhere else.
+
+### 6. Test and start Nginx
+
+```bash
+nginx -t
+```
+
+If successful:
+
+```bash
+brew services start nginx
+```
+
+Start the React application:
+
+```bash
+cd client
+npm run dev
+```
+
+Now open:
 
 ```text
 https://imagify.com
 ```
 
-The local HTTPS setup uses:
+HTTP requests to:
 
-- `/etc/hosts`
-- Nginx
-- mkcert
+```text
+http://imagify.com
+```
 
-The generated SSL certificates are intentionally excluded from Git.
+are redirected to HTTPS.
+
+### Task 2 Architecture
+
+```text
+Browser
+   ↓
+https://imagify.com
+   ↓
+/etc/hosts
+   ↓
+127.0.0.1
+   ↓
+Nginx :443
+   ↓
+SSL / HTTPS
+   ↓
+Reverse Proxy
+   ↓
+React/Vite :5173
+```
+
+## Technical Decisions
+
+### Sharp
+
+Used for resizing, compression, sharpening, upscaling, and metadata extraction.
+
+### Multer
+
+Uses `memoryStorage()` for temporary upload handling and validates file type and size.
+
+### Cloudinary
+
+Stores original and processed images. MongoDB stores image metadata and Cloudinary URLs.
+
+### MongoDB
+
+Stores image information and processed-image records instead of image binaries.
+
+### Image Service
+
+`server/src/services/image.service.js` contains reusable temporary-file and Cloudinary helpers.
+
+### React State
+
+React local state and props are used instead of Redux because the current application does not require complex global state.
+
+### Nginx + mkcert
+
+Nginx provides reverse proxying and HTTP → HTTPS redirection. mkcert provides locally trusted HTTPS certificates.
 
 ## Deployment
 
-The project can be deployed using:
+Current deployment architecture:
 
-- Vercel for the frontend
-- Render or another Node.js hosting platform for the backend
-- MongoDB Atlas for the database
-- Cloudinary for image storage
+```text
+Frontend → Vercel
+Backend  → Render
+Database → MongoDB Atlas
+Images   → Cloudinary
+```
 
-Production environment variables must be configured on the respective hosting platforms.
+Production environment variables must be configured on the respective platforms.
 
 ## Current Status
 
-Task 1 currently includes:
+### Completed
 
-- Image upload
-- Image validation
+- Image upload and validation
 - Resize
 - Compression
 - Quality enhancement
 - 2× / 3× upscaling
 - Original/processed preview
-- Image metadata
-- Download functionality
-- Cloudinary image storage
-- MongoDB metadata storage
-- Responsive frontend
-- Local HTTPS development setup
+- Metadata display
+- Download
+- Cloudinary storage
+- MongoDB metadata
+- Responsive UI
+- Production deployment
+- Local HTTPS environment
 
-## Future Improvements
+### Planned
 
-Planned improvements for the next stages of the project include:
-
-- PWA support
+- PWA
 - Multiple image processing
-- Background image processing with queues
+- Background queues
 - Push notifications
 - Temporary image sharing
-- User authentication
 - Google Login
 - Usage limits
 - Stripe subscriptions
-- Public image APIs
+- Public image API
 - Chrome screenshot extension
 
 ## Repository
 
-GitHub:
-
-```text
-https://github.com/Deveshwar-cs/Imagify
-```
+GitHub: https://github.com/Deveshwar-cs/Imagify
 
 ## Author
 
