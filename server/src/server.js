@@ -20,7 +20,7 @@ app.use(express.json());
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
-    message: "Pixora api is running",
+    message: "Imagify api is running",
   });
 });
 
@@ -58,5 +58,5 @@ app.use((error, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Pixora servern running on http://localhost:${PORT}`);
+  console.log(`Imagify server running on http://localhost:${PORT}`);
 });
