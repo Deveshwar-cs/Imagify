@@ -1,0 +1,35 @@
+# server
+node_modules
+.env
+uploads
+
+#frontend
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Uploads
+server/uploads/
+uploads/
+
+# Build files
+client/dist/
+server/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# macOS
+.DS_Store
+
+# Local SSL certificates
+nginx/ssl/
+
+# IDE
+.vscode/
+.idea/
