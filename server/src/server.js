@@ -11,7 +11,11 @@ const PORT = process.env.PORT || 5000;
 
 app.use(
   cors({
-    origin: ["http://localhost:5173", "https://imagify.com"],
+    origin: [
+      "http://localhost:5173",
+      "https://imagify.com",
+      "https://imagify-taupe-iota.vercel.app",
+    ],
   }),
 );
 
