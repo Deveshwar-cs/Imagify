@@ -2,12 +2,18 @@ import sharp from "sharp";
 import Image from "../models/image.models.js";
 import fs from "fs/promises";
 import cloudinary from "../config/cloudinary.js";
+import imageQueue from "../queue/image.queue.js";
+import ProcessingBatch from "../models/processing.batch.model.js";
+
+import {sendPushNotification} from "../services/push.services.js";
+
 import {
   createTempFilePath,
   uploadToCloudinary,
   downloadImageToTemp,
   cleanupTempFile,
 } from "../services/image.service.js";
+import PushSubscription from "../models/push.subscription.model.js";
 
 export const uploadImage = async (req, res) => {
   try {
@@ -516,5 +522,212 @@ export const upscaleImage = async (req, res) => {
   } finally {
     await cleanupTempFile(inputPath);
     await cleanupTempFile(outputPath);
+  }
+};
+
+export const queueImageProcessing = async (req, res) => {
+  try {
+    const {imageIds, operation, options = {}} = req.body;
+
+    const allowedOperations = ["resize", "compress", "quality", "upscale"];
+
+    if (!Array.isArray(imageIds) || imageIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide at least one image",
+      });
+    }
+
+    if (!allowedOperations.includes(operation)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid image processing operation",
+      });
+    }
+
+    const images = await Image.find({
+      _id: {$in: imageIds},
+    });
+
+    if (images.length !== imageIds.length) {
+      return res.status(404).json({
+        success: false,
+        message: "One or more images were not found",
+      });
+    }
+
+    const batch = await ProcessingBatch.create({
+      imageIds: images.map((image) => image._id),
+      totalImages: images.length,
+      operation,
+      options,
+      status: "processing",
+    });
+
+    const jobs = [];
+
+    for (const image of images) {
+      const job = await imageQueue.add("process-image", {
+        imageId: image._id.toString(),
+        operation,
+        options,
+        batchId: batch._id.toString(),
+      });
+
+      jobs.push(job);
+    }
+
+    return res.status(202).json({
+      success: true,
+      message: "Image processing batch added to queue",
+      batchId: batch._id,
+      totalImages: images.length,
+      jobIds: jobs.map((job) => job.id),
+      operation,
+    });
+  } catch (error) {
+    console.error("Queue image processing error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to queue image processing batch",
+    });
+  }
+};
+
+export const getBatchStatus = async (req, res) => {
+  try {
+    const {batchId} = req.params;
+
+    const batch = await ProcessingBatch.findById(batchId).populate("imageIds");
+
+    if (!batch) {
+      return res.status(404).json({
+        success: false,
+        message: "Processing batch not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      batch: {
+        id: batch._id,
+        status: batch.status,
+        operation: batch.operation,
+        options: batch.options,
+        totalImages: batch.totalImages,
+        completedImages: batch.completedImages,
+        failedImages: batch.failedImages,
+        progress: Math.round((batch.completedImages / batch.totalImages) * 100),
+        images: batch.imageIds,
+      },
+    });
+  } catch (error) {
+    console.error("Get batch status error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to get batch status",
+    });
+  }
+};
+
+export const subscribeToPush = async (req, res) => {
+  try {
+    const {subscription} = req.body;
+
+    if (!subscription?.endpoint) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid push subscription",
+      });
+    }
+
+    const savedSubscription = await PushSubscription.findOneAndUpdate(
+      {endpoint: subscription.endpoint},
+      {
+        endpoint: subscription.endpoint,
+        keys: {
+          p256dh: subscription.keys.p256dh,
+          auth: subscription.keys.auth,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        setDefaultsOnInsert: true,
+      },
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Push subscription saved successfully",
+      subscriptionId: savedSubscription._id,
+    });
+  } catch (error) {
+    console.error("Push subscription error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to save push subscription",
+    });
+  }
+};
+
+export const testPushNotification = async (req, res) => {
+  try {
+    const subscriptions = await PushSubscription.find();
+
+    if (subscriptions.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No push subscriptions found",
+      });
+    }
+
+    const results = [];
+
+    for (const subscription of subscriptions) {
+      try {
+        await sendPushNotification(
+          {
+            endpoint: subscription.endpoint,
+            keys: {
+              p256dh: subscription.keys.p256dh,
+              auth: subscription.keys.auth,
+            },
+          },
+          {
+            title: "Imagify",
+            body: "Push notifications are working!",
+            url: "/",
+          },
+        );
+
+        results.push({
+          subscriptionId: subscription._id,
+          success: true,
+        });
+      } catch (error) {
+        results.push({
+          subscriptionId: subscription._id,
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Test notification sent",
+      results,
+    });
+  } catch (error) {
+    console.error("Test push notification error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to send test notification",
+    });
   }
 };

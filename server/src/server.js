@@ -13,6 +13,7 @@ app.use(
   cors({
     origin: [
       "http://localhost:5173",
+      "http://localhost:4173",
       "https://imagify.com",
       "https://imagify-taupe-iota.vercel.app",
     ],
