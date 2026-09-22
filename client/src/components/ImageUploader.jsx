@@ -1,4 +1,5 @@
 import {useEffect, useState} from "react";
+
 import api from "../services/api";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -6,63 +7,78 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 
 const ImageUploader = ({onUploaded}) => {
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [files, setFiles] = useState([]);
+  const [previews, setPreviews] = useState([]);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [uploadedImage, setUploadedImage] = useState(null);
+
+  const [uploadedImages, setUploadedImages] = useState([]);
+
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     return () => {
-      URL.revokeObjectURL(preview);
+      previews.forEach((preview) => {
+        URL.revokeObjectURL(preview);
+      });
     };
-  }, [preview]);
+  }, [previews]);
 
-  const processFile = (selectedFile) => {
-    if (!selectedFile) {
+  const processFiles = (selectedFiles) => {
+    if (!selectedFiles || selectedFiles.length === 0) {
       return;
     }
 
     setError("");
-    setUploadedImage(null);
+    setUploadedImages([]);
 
-    if (!allowedTypes.includes(selectedFile.type)) {
+    const selectedFilesArray = Array.from(selectedFiles);
+
+    const invalidType = selectedFilesArray.find(
+      (file) => !allowedTypes.includes(file.type),
+    );
+
+    if (invalidType) {
       setError("Only JPG, PNG, and WEBP images are supported.");
       return;
     }
 
-    if (selectedFile.size > MAX_FILE_SIZE) {
-      setError("Image size must be less than 10 MB.");
+    const oversizedFile = selectedFilesArray.find(
+      (file) => file.size > MAX_FILE_SIZE,
+    );
+
+    if (oversizedFile) {
+      setError("Each image must be less than 10 MB.");
       return;
     }
 
-    if (preview) {
+    previews.forEach((preview) => {
       URL.revokeObjectURL(preview);
-    }
+    });
 
-    setFile(selectedFile);
+    const previewUrls = selectedFilesArray.map((file) =>
+      URL.createObjectURL(file),
+    );
 
-    const previewUrl = URL.createObjectURL(selectedFile);
-    setPreview(previewUrl);
+    setFiles(selectedFilesArray);
+    setPreviews(previewUrls);
   };
 
   const handleFileChange = (event) => {
-    processFile(event.target.files[0]);
+    processFiles(event.target.files);
   };
 
   const handleDrop = (event) => {
     event.preventDefault();
     setIsDragging(false);
 
-    const droppedFile = event.dataTransfer.files[0];
-
-    processFile(droppedFile);
+    processFiles(event.dataTransfer.files);
   };
 
   const handleUpload = async () => {
-    if (!file) {
-      setError("Please select an image first.");
+    if (files.length === 0) {
+      setError("Please select at least one image.");
       return;
     }
 
@@ -72,18 +88,22 @@ const ImageUploader = ({onUploaded}) => {
 
       const formData = new FormData();
 
-      formData.append("image", file);
+      files.forEach((file) => {
+        formData.append("images", file);
+      });
 
       const response = await api.post("/images/upload", formData);
 
-      setUploadedImage(response.data.image);
-      onUploaded(response.data.image);
+      console.log("Uploaded images:", response.data.images);
+
+      setUploadedImages(response.data.images);
+      onUploaded(response.data.images);
     } catch (error) {
       console.error(error);
 
       setError(
         error.response?.data?.message ||
-          "Something went wrong while uploading the image.",
+          "Something went wrong while uploading the images.",
       );
     } finally {
       setLoading(false);
@@ -91,18 +111,20 @@ const ImageUploader = ({onUploaded}) => {
   };
 
   const reset = () => {
-    if (preview) {
+    previews.forEach((preview) => {
       URL.revokeObjectURL(preview);
-    }
+    });
 
-    setFile(null);
-    setPreview(null);
-    setUploadedImage(null);
+    setFiles([]);
+    setPreviews([]);
+    setUploadedImages([]);
     setError("");
   };
+
   return (
     <div className="w-full">
-      {!file && (
+      {/* Upload area */}
+      {files.length === 0 && (
         <label
           htmlFor="image-upload"
           onDragOver={(event) => {
@@ -122,7 +144,7 @@ const ImageUploader = ({onUploaded}) => {
           </div>
 
           <h2 className="text-xl font-semibold text-slate-900">
-            Drop your image here
+            Drop your images here
           </h2>
 
           <p className="mt-2 text-sm text-slate-500">
@@ -136,86 +158,111 @@ const ImageUploader = ({onUploaded}) => {
             <span>•</span>
             <span>WEBP</span>
             <span>•</span>
-            <span>Max 10 MB</span>
+            <span>Max 10 MB each</span>
           </div>
 
           <input
             id="image-upload"
             type="file"
             accept="image/jpeg,image/png,image/webp"
+            multiple
             onChange={handleFileChange}
             className="hidden"
           />
         </label>
       )}
 
+      {/* Error */}
       {error && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
 
-      {file && (
+      {/* Selected images */}
+      {files.length > 0 && (
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="grid md:grid-cols-2">
-            <div className="flex min-h-96 items-center justify-center bg-slate-100 p-6">
-              <img
-                src={preview}
-                alt="Selected image"
-                className="max-h-105 max-w-full rounded-xl object-contain shadow-sm"
-              />
-            </div>
-
-            <div className="flex flex-col justify-center p-8">
-              <span className="text-sm font-medium text-slate-500">
-                Selected image
-              </span>
-
-              <h2 className="mt-2 break-all text-xl font-semibold text-slate-900">
-                {file.name}
+          {/* Header */}
+          <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Selected Images
               </h2>
 
-              <div className="mt-6 space-y-3">
-                <div className="flex justify-between rounded-xl bg-slate-50 px-4 py-3">
-                  <span className="text-sm text-slate-500">File size</span>
-
-                  <span className="text-sm font-medium">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </span>
-                </div>
-
-                <div className="flex justify-between rounded-xl bg-slate-50 px-4 py-3">
-                  <span className="text-sm text-slate-500">Format</span>
-
-                  <span className="text-sm font-medium">
-                    {file.type.split("/")[1].toUpperCase()}
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-8 flex gap-3">
-                <button
-                  onClick={handleUpload}
-                  disabled={loading}
-                  className="flex-1 rounded-xl bg-slate-900 px-5 py-3 font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loading ? "Uploading..." : "Upload Image"}
-                </button>
-
-                <button
-                  onClick={reset}
-                  disabled={loading}
-                  className="rounded-xl border border-slate-200 px-5 py-3 font-medium text-slate-700 transition hover:bg-slate-50"
-                >
-                  Remove
-                </button>
-              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                {files.length} image{files.length > 1 ? "s" : ""} selected
+              </p>
             </div>
+
+            <button
+              onClick={reset}
+              disabled={loading}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Remove All
+            </button>
           </div>
 
-          {uploadedImage && (
+          {/* Image grid */}
+          <div className="grid gap-5 p-6 sm:grid-cols-2 lg:grid-cols-3">
+            {files.map((file, index) => (
+              <div
+                key={`${file.name}-${file.lastModified}-${index}`}
+                className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+              >
+                <div className="flex h-52 items-center justify-center bg-slate-100 p-4">
+                  <img
+                    src={previews[index]}
+                    alt={file.name}
+                    className="max-h-full max-w-full rounded-xl object-contain"
+                  />
+                </div>
+
+                <div className="p-4">
+                  <h3 className="truncate font-medium text-slate-900">
+                    {file.name}
+                  </h3>
+
+                  <div className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Size</span>
+
+                      <span className="font-medium text-slate-700">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Format</span>
+
+                      <span className="font-medium uppercase text-slate-700">
+                        {file.type.split("/")[1]}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Upload button */}
+          <div className="border-t border-slate-200 p-6">
+            <button
+              onClick={handleUpload}
+              disabled={loading}
+              className="w-full rounded-xl bg-slate-900 px-5 py-3 font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading
+                ? "Uploading..."
+                : `Upload ${files.length} Image${files.length > 1 ? "s" : ""}`}
+            </button>
+          </div>
+
+          {/* Uploaded images */}
+          {uploadedImages.length > 0 && (
             <div className="border-t border-slate-200 p-6">
               <div className="rounded-2xl bg-green-50 p-5">
+                {/* Success message */}
                 <div className="flex items-center gap-3">
                   <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-100 text-green-700">
                     ✓
@@ -223,39 +270,63 @@ const ImageUploader = ({onUploaded}) => {
 
                   <div>
                     <h3 className="font-semibold text-green-900">
-                      Image uploaded successfully
+                      Images uploaded successfully
                     </h3>
 
                     <p className="text-sm text-green-700">
-                      Your image is ready to be processed.
+                      {uploadedImages.length} image
+                      {uploadedImages.length > 1 ? "s are" : " is"} ready to be
+                      processed.
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-xs text-slate-400">Dimensions</p>
+                {/* Uploaded image grid */}
+                <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {uploadedImages.map((image) => (
+                    <div
+                      key={image.id}
+                      className="overflow-hidden rounded-xl bg-white"
+                    >
+                      <img
+                        src={image.url}
+                        alt={image.originalName}
+                        className="h-48 w-full bg-slate-100 object-contain"
+                      />
 
-                    <p className="mt-1 font-semibold">
-                      {uploadedImage.width} × {uploadedImage.height}
-                    </p>
-                  </div>
+                      <div className="p-4">
+                        <p className="truncate font-medium text-slate-900">
+                          {image.originalName}
+                        </p>
 
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-xs text-slate-400">Size</p>
+                        <div className="mt-3 space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Dimensions</span>
 
-                    <p className="mt-1 font-semibold">
-                      {(uploadedImage.size / 1024).toFixed(2)} KB
-                    </p>
-                  </div>
+                            <span className="font-medium">
+                              {image.width} × {image.height}
+                            </span>
+                          </div>
 
-                  <div className="rounded-xl bg-white p-4">
-                    <p className="text-xs text-slate-400">Format</p>
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Size</span>
 
-                    <p className="mt-1 font-semibold uppercase">
-                      {uploadedImage.mimeType.split("/")[1]}
-                    </p>
-                  </div>
+                            <span className="font-medium">
+                              {(image.size / 1024).toFixed(2)} KB
+                            </span>
+                          </div>
+
+                          <div className="flex justify-between">
+                            <span className="text-slate-500">Format</span>
+
+                            <span className="font-medium uppercase">
+                              {image.mimeType.split("/")[1]}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
