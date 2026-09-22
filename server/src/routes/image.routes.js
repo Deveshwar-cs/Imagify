@@ -10,7 +10,7 @@ import {
 
 const router = express.Router();
 
-router.post("/upload", upload.single("image"), uploadImage);
+router.post("/upload", upload.array("images", 10), uploadImage);
 router.post("/:imageId/resize", resizeImage);
 router.post("/:imageId/compress", compressImage);
 router.post("/:imageId/quality", improveQuality);

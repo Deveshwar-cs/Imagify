@@ -11,47 +11,47 @@ import {
 
 export const uploadImage = async (req, res) => {
   try {
-    if (!req.file) {
+    if (!req.files) {
       return res.status(400).json({
         success: false,
         message: "Please upload an image",
       });
     }
 
-    const metadata = await sharp(req.file.buffer).metadata();
-    const result = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: "imagify/originals",
-          resource_type: "image",
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(result);
-          }
-        },
-      );
+    const uploadedImages = [];
 
-      uploadStream.end(req.file.buffer);
-    });
+    for (const file of req.files) {
+      const metadata = await sharp(file.buffer).metadata();
 
-    const image = await Image.create({
-      originalName: req.file.originalname,
-      fileName: result.public_id,
-      mimeType: req.file.mimetype,
-      size: req.file.size,
-      width: metadata.width,
-      height: metadata.height,
-      url: result.secure_url,
-    });
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: "imagify/originals",
+            resource_type: "image",
+          },
+          (error, result) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve(result);
+            }
+          },
+        );
 
-    return res.status(201).json({
-      success: true,
-      message: "Image uploaded successfully",
+        uploadStream.end(file.buffer);
+      });
 
-      image: {
+      const image = await Image.create({
+        originalName: file.originalname,
+        fileName: result.public_id,
+        mimeType: file.mimetype,
+        size: file.size,
+        width: metadata.width,
+        height: metadata.height,
+        url: result.secure_url,
+      });
+
+      uploadedImages.push({
         id: image._id,
         originalName: image.originalName,
         fileName: image.fileName,
@@ -60,7 +60,15 @@ export const uploadImage = async (req, res) => {
         width: image.width,
         height: image.height,
         url: image.url,
-      },
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `${uploadedImages.length} image${
+        uploadedImages.length > 1 ? "s" : ""
+      } uploaded successfully`,
+      images: uploadedImages,
     });
   } catch (error) {
     console.log("Upload image error:", error);
