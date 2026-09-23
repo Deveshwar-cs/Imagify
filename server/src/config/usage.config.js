@@ -1,0 +1,2 @@
+export const GUEST_IMAGE_LIMIT = 4;
+export const AUTHENTICATED_IMAGE_LIMIT = 10;

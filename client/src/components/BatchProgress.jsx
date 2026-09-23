@@ -2,7 +2,7 @@ import {useEffect, useState} from "react";
 
 import api from "../services/api";
 
-const BatchProgress = ({batchId}) => {
+const BatchProgress = ({batchId, onStatusChange}) => {
   console.log("BatchProgress received batchId:", batchId);
 
   const [batch, setBatch] = useState(null);
@@ -12,6 +12,10 @@ const BatchProgress = ({batchId}) => {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState("");
   const [copied, setCopied] = useState(false);
+
+  // ============================================
+  // SHARE RESULTS
+  // ============================================
 
   const handleShare = async () => {
     try {
@@ -35,6 +39,10 @@ const BatchProgress = ({batchId}) => {
     }
   };
 
+  // ============================================
+  // COPY SHARE URL
+  // ============================================
+
   const handleCopyShareUrl = async () => {
     try {
       await navigator.clipboard.writeText(shareUrl);
@@ -51,6 +59,10 @@ const BatchProgress = ({batchId}) => {
     }
   };
 
+  // ============================================
+  // FETCH BATCH STATUS
+  // ============================================
+
   useEffect(() => {
     if (!batchId) {
       return;
@@ -62,14 +74,26 @@ const BatchProgress = ({batchId}) => {
       try {
         const response = await api.get(`/images/batches/${batchId}`);
 
-        console.log("Batch API response:", response.data.batch);
+        const batchData = response.data.batch;
 
-        setBatch(response.data.batch);
+        console.log("Batch API response:", batchData);
+
+        setBatch(batchData);
         setError("");
 
-        const status = response.data.batch.status;
+        // --------------------------------------------
+        // Send status to parent App.jsx
+        // --------------------------------------------
 
-        if (status === "completed" || status === "failed") {
+        if (onStatusChange) {
+          onStatusChange(batchData.status);
+        }
+
+        // --------------------------------------------
+        // Stop polling when processing is finished
+        // --------------------------------------------
+
+        if (batchData.status === "completed" || batchData.status === "failed") {
           clearInterval(intervalId);
         }
       } catch (error) {
@@ -81,14 +105,21 @@ const BatchProgress = ({batchId}) => {
       }
     };
 
+    // Fetch immediately
     fetchBatchStatus();
 
+    // Poll every 2 seconds
     intervalId = setInterval(fetchBatchStatus, 2000);
 
+    // Cleanup
     return () => {
       clearInterval(intervalId);
     };
-  }, [batchId]);
+  }, [batchId, onStatusChange]);
+
+  // ============================================
+  // LOADING
+  // ============================================
 
   if (!batch && !error) {
     return (
@@ -98,6 +129,10 @@ const BatchProgress = ({batchId}) => {
     );
   }
 
+  // ============================================
+  // ERROR
+  // ============================================
+
   if (error) {
     return (
       <div className="rounded-3xl border border-red-200 bg-red-50 p-6">
@@ -106,16 +141,26 @@ const BatchProgress = ({batchId}) => {
     );
   }
 
+  // ============================================
+  // BATCH DATA
+  // ============================================
+
   const progress = batch.progress || 0;
 
   const isCompleted = batch.status === "completed";
-
   const isFailed = batch.status === "failed";
+  const isProcessing =
+    batch.status === "processing" || batch.status === "pending";
 
   return (
     <div className="space-y-6">
-      {/* Progress Card */}
+      {/* ============================================
+          PROGRESS CARD
+      ============================================ */}
+
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        {/* Header */}
+
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
@@ -127,24 +172,51 @@ const BatchProgress = ({batchId}) => {
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              {batch.completedImages} of {batch.totalImages} images completed
+              {isCompleted
+                ? "All images have finished processing."
+                : isFailed
+                  ? "Processing finished with some errors."
+                  : `${batch.completedImages} of ${batch.totalImages} images completed`}
             </p>
           </div>
 
-          <span className="text-sm font-semibold text-slate-700">
+          {/* Percentage */}
+
+          <span
+            className={`text-sm font-semibold ${
+              isCompleted
+                ? "text-emerald-600"
+                : isFailed
+                  ? "text-red-600"
+                  : "text-slate-700"
+            }`}
+          >
             {progress}%
           </span>
         </div>
 
-        {/* Progress Bar */}
+        {/* ============================================
+            PROGRESS BAR
+        ============================================ */}
+
         <div className="mt-6 h-3 overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-slate-900 transition-all duration-500"
+            className={`h-full rounded-full transition-all duration-500 ${
+              isCompleted
+                ? "bg-emerald-500"
+                : isFailed
+                  ? "bg-red-500"
+                  : "bg-slate-900"
+            }`}
             style={{
               width: `${progress}%`,
             }}
           />
         </div>
+
+        {/* ============================================
+            OPERATION + COUNT
+        ============================================ */}
 
         <div className="mt-4 flex items-center justify-between text-sm">
           <span className="capitalize text-slate-500">{batch.operation}</span>
@@ -154,17 +226,74 @@ const BatchProgress = ({batchId}) => {
           </span>
         </div>
 
+        {/* ============================================
+            FAILED IMAGES
+        ============================================ */}
+
         {batch.failedImages > 0 && (
           <div className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
             {batch.failedImages} image
             {batch.failedImages > 1 ? "s" : ""} failed to process.
           </div>
         )}
+
+        {/* ============================================
+            COMPLETED MESSAGE
+        ============================================ */}
+
+        {isCompleted && (
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500 text-white">
+                ✓
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-emerald-700">
+                  Processing completed
+                </p>
+
+                <p className="mt-1 text-xs text-emerald-600">
+                  Your processed images are ready.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ============================================
+            FAILED MESSAGE
+        ============================================ */}
+
+        {isFailed && (
+          <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white">
+                !
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold text-red-700">
+                  Processing failed
+                </p>
+
+                <p className="mt-1 text-xs text-red-600">
+                  Some images could not be processed.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Completed Results */}
+      {/* ============================================
+          COMPLETED RESULTS
+      ============================================ */}
+
       {isCompleted && (
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          {/* Results Header */}
+
           <div>
             <h2 className="text-xl font-semibold text-slate-900">
               Your images are ready
@@ -175,7 +304,10 @@ const BatchProgress = ({batchId}) => {
             </p>
           </div>
 
-          {/* Share Section */}
+          {/* ============================================
+              SHARE SECTION
+          ============================================ */}
+
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <div>
               <h3 className="font-semibold text-slate-900">
@@ -188,6 +320,8 @@ const BatchProgress = ({batchId}) => {
               </p>
             </div>
 
+            {/* Share Button */}
+
             <button
               onClick={handleShare}
               disabled={shareLoading}
@@ -196,11 +330,15 @@ const BatchProgress = ({batchId}) => {
               {shareLoading ? "Creating share link..." : "Share Results"}
             </button>
 
+            {/* Share Error */}
+
             {shareError && (
               <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
                 {shareError}
               </p>
             )}
+
+            {/* Share URL */}
 
             {shareUrl && (
               <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
@@ -229,7 +367,10 @@ const BatchProgress = ({batchId}) => {
             )}
           </div>
 
-          {/* Images */}
+          {/* ============================================
+              IMAGES
+          ============================================ */}
+
           {batch.images?.length > 0 ? (
             <div className="mt-6 space-y-8">
               {batch.images.map((image) => {
@@ -247,9 +388,15 @@ const BatchProgress = ({batchId}) => {
                     key={image._id}
                     className="overflow-hidden rounded-3xl border border-slate-200"
                   >
-                    {/* Image Comparison */}
+                    {/* ====================================
+                        IMAGE COMPARISON
+                    ==================================== */}
+
                     <div className="grid md:grid-cols-2">
-                      {/* Original */}
+                      {/* ==================================
+                          ORIGINAL IMAGE
+                      ================================== */}
+
                       <div className="border-b border-slate-200 md:border-b-0 md:border-r">
                         <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
                           <h3 className="font-semibold text-slate-900">
@@ -262,6 +409,7 @@ const BatchProgress = ({batchId}) => {
                         </div>
 
                         {/* Original Preview */}
+
                         <div className="flex aspect-square items-center justify-center bg-slate-100 p-5">
                           <img
                             src={image.url}
@@ -271,6 +419,7 @@ const BatchProgress = ({batchId}) => {
                         </div>
 
                         {/* Original Details */}
+
                         <div className="p-5">
                           <h4
                             className="truncate font-medium text-slate-900"
@@ -307,7 +456,10 @@ const BatchProgress = ({batchId}) => {
                         </div>
                       </div>
 
-                      {/* Processed */}
+                      {/* ==================================
+                          PROCESSED IMAGE
+                      ================================== */}
+
                       <div>
                         <div className="border-b border-slate-200 bg-slate-50 px-5 py-3">
                           <h3 className="font-semibold text-slate-900">
@@ -320,6 +472,7 @@ const BatchProgress = ({batchId}) => {
                         </div>
 
                         {/* Processed Preview */}
+
                         <div className="flex aspect-square items-center justify-center bg-slate-100 p-5">
                           <img
                             src={processedImage.url}
@@ -329,6 +482,7 @@ const BatchProgress = ({batchId}) => {
                         </div>
 
                         {/* Processed Details */}
+
                         <div className="p-5">
                           <h4
                             className="truncate font-medium text-slate-900"
@@ -364,6 +518,7 @@ const BatchProgress = ({batchId}) => {
                           </div>
 
                           {/* Download */}
+
                           <a
                             href={processedImage.url}
                             target="_blank"
@@ -377,7 +532,10 @@ const BatchProgress = ({batchId}) => {
                       </div>
                     </div>
 
-                    {/* Compression Savings */}
+                    {/* ====================================
+                        COMPRESSION SAVINGS
+                    ==================================== */}
+
                     {batch.operation === "compress" && (
                       <div className="border-t border-slate-200 bg-slate-50 px-5 py-4">
                         <div className="flex flex-wrap items-center justify-between gap-3">

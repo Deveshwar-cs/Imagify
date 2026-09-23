@@ -7,6 +7,7 @@ const processingBatchSchema = new mongoose.Schema(
       enum: ["pending", "processing", "completed", "failed"],
       default: "pending",
     },
+
     imageIds: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -27,6 +28,13 @@ const processingBatchSchema = new mongoose.Schema(
     failedImages: {
       type: Number,
       default: 0,
+    },
+
+    // Prevent sending the batch completion
+    // notification more than once.
+    notificationSent: {
+      type: Boolean,
+      default: false,
     },
 
     operation: {

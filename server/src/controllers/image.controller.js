@@ -4,6 +4,9 @@ import fs from "fs/promises";
 import cloudinary from "../config/cloudinary.js";
 import imageQueue from "../queue/image.queue.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
+import {GUEST_IMAGE_LIMIT} from "../config/usage.config.js";
+import {AUTHENTICATED_IMAGE_LIMIT} from "../config/usage.config.js";
+import {getGuestUsage} from "../services/usage.service.js";
 
 import {sendPushNotification} from "../services/push.services.js";
 
@@ -556,6 +559,54 @@ export const queueImageProcessing = async (req, res) => {
       });
     }
 
+    const imageCount = imageIds.length;
+
+    let usage;
+    let usageType;
+
+    if (req.user) {
+      usageType = "authenticated";
+
+      const remaining = AUTHENTICATED_IMAGE_LIMIT - req.user.usageCount;
+
+      if (imageCount > remaining) {
+        return res.status(429).json({
+          success: false,
+          message: "You have reached your 10 image limit.",
+          usage: {
+            used: req.user.usageCount,
+            limit: AUTHENTICATED_IMAGE_LIMIT,
+            remaining,
+          },
+          requiresLogin: false,
+        });
+      }
+
+      usage = req.user;
+    } else {
+      usageType = "guest";
+
+      const guestUsage = await getGuestUsage(req.guestId);
+
+      const remaining = GUEST_IMAGE_LIMIT - guestUsage.usageCount;
+
+      if (imageCount > remaining) {
+        return res.status(429).json({
+          success: false,
+          message:
+            "Guest image limit reached. Please login with Google to continue.",
+          usage: {
+            used: guestUsage.usageCount,
+            limit: GUEST_IMAGE_LIMIT,
+            remaining,
+          },
+          requiresLogin: true,
+        });
+      }
+
+      usage = guestUsage;
+    }
+
     const batch = await ProcessingBatch.create({
       imageIds: images.map((image) => image._id),
       totalImages: images.length,
@@ -577,6 +628,10 @@ export const queueImageProcessing = async (req, res) => {
       jobs.push(job);
     }
 
+    usage.usageCount += imageCount;
+
+    await usage.save();
+
     return res.status(202).json({
       success: true,
       message: "Image processing batch added to queue",
@@ -584,6 +639,17 @@ export const queueImageProcessing = async (req, res) => {
       totalImages: images.length,
       jobIds: jobs.map((job) => job.id),
       operation,
+      usage: {
+        used: usage.usageCount,
+        limit:
+          usageType === "authenticated"
+            ? AUTHENTICATED_IMAGE_LIMIT
+            : GUEST_IMAGE_LIMIT,
+        remaining:
+          usageType === "authenticated"
+            ? AUTHENTICATED_IMAGE_LIMIT - usage.usageCount
+            : GUEST_IMAGE_LIMIT - usage.usageCount,
+      },
     });
   } catch (error) {
     console.error("Queue image processing error:", error);

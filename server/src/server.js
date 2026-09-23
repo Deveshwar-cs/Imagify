@@ -3,6 +3,8 @@ import cors from "cors";
 import dotenv from "dotenv";
 import imageRoutes from "./routes/image.routes.js";
 import connectDB from "./config/database.js";
+import cookieParser from "cookie-parser";
+import authRoutes from "./routes/auth.routes.js";
 
 dotenv.config();
 const app = express();
@@ -17,10 +19,12 @@ app.use(
       "https://imagify.com",
       "https://imagify-taupe-iota.vercel.app",
     ],
+    credentials: true,
   }),
 );
 
 app.use(express.json());
+app.use(cookieParser());
 
 app.get("/api/health", (req, res) => {
   res.json({
@@ -30,6 +34,7 @@ app.get("/api/health", (req, res) => {
 });
 
 app.use("/api/images", imageRoutes);
+app.use("/api/auth", authRoutes);
 
 app.use((error, req, res, next) => {
   console.error("Server error:", error);

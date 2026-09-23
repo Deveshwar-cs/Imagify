@@ -7,6 +7,11 @@ Imagify is a modern image-processing platform that lets users upload images and 
 - Upload JPG, PNG, and WEBP images
 - Multiple image upload
 - 10 MB upload limit per image
+- Guest usage limit of 4 processed images
+- Google Login
+- Authenticated user usage limit of 10 processed images
+- Persistent usage tracking
+- Backend-enforced usage limits
 - Resize with custom dimensions and aspect-ratio preservation
 - Compress with low, medium, and high levels
 - Improve image quality with sharpening
@@ -39,6 +44,7 @@ Imagify is a modern image-processing platform that lets users upload images and 
 - Tailwind CSS
 - Axios
 - React Router
+- `@react-oauth/google`
 - vite-plugin-pwa
 
 **Backend**
@@ -52,6 +58,8 @@ Imagify is a modern image-processing platform that lets users upload images and 
 - Redis
 - BullMQ
 - Web Push
+- `google-auth-library`
+- JSON Web Token (`jsonwebtoken`)
 
 **Infrastructure**
 
@@ -77,6 +85,7 @@ Imagify/
 │   └── src/
 │       ├── config/
 │       ├── controllers/
+│       ├── middleware/
 │       ├── models/
 │       ├── routes/
 │       ├── services/
@@ -88,7 +97,205 @@ Imagify/
 └── README.md
 ```
 
-## Image Processing Flow
+# Authentication & Usage Limits
+
+Imagify supports both anonymous guest usage and authenticated Google users.
+
+## Guest Usage
+
+Users can process up to **4 images** without logging in.
+
+Guest usage is tracked using a unique `guestId` stored in an HTTP-only cookie.
+
+```text
+Guest
+  ↓
+Process Images
+  ↓
+Guest Usage Count
+  ↓
+Maximum 4 Images
+  ↓
+Limit Reached
+  ↓
+Google Login Required
+```
+
+Refreshing the browser does not reset the guest usage because the guest identifier is stored in a persistent cookie and usage is stored in MongoDB.
+
+## Google Login
+
+Imagify uses Google Identity Services for authentication.
+
+The frontend receives a Google credential and sends it to the backend:
+
+```text
+Google Login
+     ↓
+Google Credential
+     ↓
+React
+     ↓
+POST /api/auth/google
+     ↓
+Backend verifies Google ID token
+     ↓
+Find or Create User
+     ↓
+Generate JWT
+     ↓
+HTTP-only authToken Cookie
+```
+
+Google credentials are verified on the backend using `google-auth-library`.
+
+The backend never trusts user information sent directly from the frontend without verifying the Google credential.
+
+## Authenticated Usage
+
+Authenticated users can process up to **10 images**.
+
+Usage is stored in the `User` MongoDB document:
+
+```js
+{
+  googleId: "...",
+  name: "...",
+  email: "...",
+  picture: "...",
+  usageCount: 0
+}
+```
+
+The backend checks the user's current usage before creating processing jobs.
+
+```text
+Authenticated User
+       ↓
+Process Images
+       ↓
+User.usageCount
+       ↓
+Maximum 10 Images
+```
+
+Usage limits are enforced on the backend, so modifying frontend code cannot bypass the processing limit.
+
+## Authentication Endpoints
+
+| Operation    | Endpoint                | Description                          |
+| ------------ | ----------------------- | ------------------------------------ |
+| Google Login | `POST /api/auth/google` | Authenticate using Google credential |
+| Current User | `GET /api/auth/me`      | Get authenticated user information   |
+| Logout       | `POST /api/auth/logout` | Clear authentication cookie          |
+
+### Google Login
+
+Request:
+
+```json
+{
+  "credential": "GOOGLE_ID_TOKEN"
+}
+```
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "message": "Google login successful",
+  "user": {
+    "id": "...",
+    "name": "Deveshwar Rajput",
+    "email": "user@example.com",
+    "picture": "...",
+    "usageCount": 0
+  }
+}
+```
+
+The backend creates an HTTP-only `authToken` cookie containing a JWT.
+
+### Current User
+
+```text
+GET /api/auth/me
+```
+
+Requires the authenticated `authToken` cookie.
+
+Example response:
+
+```json
+{
+  "success": true,
+  "user": {
+    "id": "...",
+    "name": "Deveshwar Rajput",
+    "email": "user@example.com",
+    "picture": "...",
+    "usageCount": 3
+  }
+}
+```
+
+### Logout
+
+```text
+POST /api/auth/logout
+```
+
+The backend clears the `authToken` cookie.
+
+## Usage Limit Flow
+
+```text
+                 ┌──────────────────┐
+                 │      Upload      │
+                 └────────┬─────────┘
+                          ↓
+                 ┌──────────────────┐
+                 │  Process Images  │
+                 └────────┬─────────┘
+                          ↓
+                 ┌──────────────────┐
+                 │ Authenticated?   │
+                 └───────┬───┬──────┘
+                         │   │
+                    No   │   │   Yes
+                         ↓   ↓
+                    Guest    User
+                      ↓        ↓
+                   Limit 4   Limit 10
+                      ↓        ↓
+                 Usage Check
+                      ↓
+              ┌───────┴────────┐
+              │                │
+           Available         Limit
+              ↓                ↓
+          Process          Block Request
+                              ↓
+                       Google Login
+```
+
+## Usage Configuration
+
+Usage limits are centralized in:
+
+```text
+server/src/config/usage.config.js
+```
+
+```js
+export const GUEST_IMAGE_LIMIT = 4;
+export const AUTHENTICATED_IMAGE_LIMIT = 10;
+```
+
+This keeps usage limits separate from the processing controller and makes them easy to change.
+
+# Image Processing Flow
 
 ```text
 Upload
@@ -131,9 +338,17 @@ Temporary processing files are removed after each operation.
 | Quality   | Improve image appearance using sharpening |
 | Upscale   | Increase image dimensions by 2× or 3×     |
 
-## API
+# API
 
-### Image Processing
+## Authentication
+
+| Operation    | Endpoint                |
+| ------------ | ----------------------- |
+| Google Login | `POST /api/auth/google` |
+| Current User | `GET /api/auth/me`      |
+| Logout       | `POST /api/auth/logout` |
+
+## Image Processing
 
 | Operation | Endpoint                             |
 | --------- | ------------------------------------ |
@@ -143,7 +358,7 @@ Temporary processing files are removed after each operation.
 | Quality   | `POST /api/images/:imageId/quality`  |
 | Upscale   | `POST /api/images/:imageId/upscale`  |
 
-### Batch Processing
+## Batch Processing
 
 | Operation              | Endpoint                           |
 | ---------------------- | ---------------------------------- |
@@ -152,7 +367,12 @@ Temporary processing files are removed after each operation.
 
 Image processing jobs are placed into a BullMQ queue backed by Redis and processed asynchronously by a worker.
 
-### Temporary Image Sharing
+The processing endpoint also enforces the appropriate usage limit:
+
+- Guest: 4 images
+- Authenticated user: 10 images
+
+## Temporary Image Sharing
 
 | Operation                  | Endpoint                                          |
 | -------------------------- | ------------------------------------------------- |
@@ -160,11 +380,11 @@ Image processing jobs are placed into a BullMQ queue backed by Redis and process
 | Get shared results         | `GET /api/images/share/:token`                    |
 | Get shared processed image | `GET /api/images/share/:token/processed/:imageId` |
 
-## Temporary Image Sharing
+# Temporary Image Sharing
 
 Imagify allows users to temporarily share completed image-processing results without requiring the recipient to log in.
 
-### Sharing Flow
+## Sharing Flow
 
 ```text
 Process Images
@@ -184,7 +404,7 @@ Recipient Opens URL
 View Processed Results
 ```
 
-### Share Token
+## Share Token
 
 A cryptographically secure random token is generated using Node.js `crypto`:
 
@@ -194,7 +414,7 @@ crypto.randomBytes(32).toString("hex");
 
 The token provides a high-entropy URL that is difficult to guess.
 
-### Expiration
+## Expiration
 
 Each share record receives an expiration time one hour after creation:
 
@@ -212,7 +432,7 @@ Expired links return:
 
 with an appropriate expiration message.
 
-### Secure Image Access
+## Secure Image Access
 
 Cloudinary URLs are not exposed through the public sharing API.
 
@@ -251,7 +471,7 @@ Browser
 
 This prevents the public share API from exposing direct Cloudinary URLs.
 
-### MongoDB TTL Cleanup
+## MongoDB TTL Cleanup
 
 Share records also use a MongoDB TTL index:
 
@@ -263,7 +483,7 @@ The TTL index automatically removes expired share records from MongoDB.
 
 TTL is used for cleanup, while the server-side `expiresAt` check remains responsible for enforcing access expiration immediately.
 
-## Background Processing
+# Background Processing
 
 Image processing is handled asynchronously using Redis and BullMQ.
 
@@ -295,7 +515,7 @@ Update Batch Progress
 
 This allows the application to process multiple images without keeping the HTTP request open.
 
-## Batch Processing
+# Batch Processing
 
 Each processing request creates a `ProcessingBatch` document containing:
 
@@ -325,7 +545,7 @@ failed
 
 The frontend periodically requests batch status to display processing progress.
 
-## Push Notifications
+# Push Notifications
 
 Imagify supports browser push notifications using Web Push.
 
@@ -339,7 +559,7 @@ The notification contains information such as:
 
 The service worker receives the push event and displays the browser notification.
 
-## Progressive Web App
+# Progressive Web App
 
 Imagify is configured as a Progressive Web App using `vite-plugin-pwa`.
 
@@ -354,16 +574,16 @@ The PWA provides:
 
 The service worker also handles notification clicks and opens the relevant Imagify page.
 
-## Local Setup
+# Local Setup
 
-### 1. Clone
+## 1. Clone
 
 ```bash
 git clone https://github.com/Deveshwar-cs/Imagify.git
 cd Imagify
 ```
 
-### 2. Install dependencies
+## 2. Install dependencies
 
 ```bash
 cd client
@@ -373,7 +593,7 @@ cd ../server
 npm install
 ```
 
-### 3. Backend environment
+## 3. Backend environment
 
 Create:
 
@@ -393,6 +613,10 @@ CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 
 CLIENT_URL=http://localhost:5173
+
+GOOGLE_CLIENT_ID=your_google_client_id
+
+JWT_SECRET=your_long_random_jwt_secret
 ```
 
 If Redis is configured locally:
@@ -404,7 +628,7 @@ REDIS_PORT=6379
 
 Never commit `.env` files or API secrets.
 
-### 4. Frontend environment
+## 4. Frontend environment
 
 Create:
 
@@ -414,44 +638,79 @@ client/.env
 
 ```env
 VITE_API_URL=http://localhost:5000/api
+VITE_GOOGLE_CLIENT_ID=your_google_client_id
 ```
 
 Never commit `.env` files or API secrets.
 
-### 5. Start Redis
+## 5. Google OAuth Setup
 
-Make sure Redis is running locally before using background processing:
+Imagify uses Google OAuth / Google Identity Services for authentication.
 
-```bash
-redis-server
-```
+### Create Google Cloud Project
 
-### 6. Start the backend
+Open the Google Cloud Console and create or select a project for Imagify.
 
-```bash
-cd server
-npm run dev
-```
+### Configure OAuth Consent Screen
 
-### 7. Start the frontend
+Configure the OAuth consent screen with:
 
-```bash
-cd client
-npm run dev
-```
+- Application name
+- Support email
+- Developer contact information
 
-Default URLs:
+For development, add your Google account as a test user if required.
+
+### Create OAuth Client
+
+Create an OAuth 2.0 Client ID with:
 
 ```text
-Frontend: http://localhost:5173
-Backend:  http://localhost:5000
+Application type:
+Web application
 ```
 
-## Task 2 — Local Domain & HTTPS
+Add the local development origin:
+
+```text
+http://localhost:5173
+```
+
+For the Google Identity Services credential-button flow used by Imagify, the frontend uses the Google Client ID and sends the returned credential to the backend for verification.
+
+### Environment Variables
+
+Use the same Google Client ID in both environments:
+
+Backend:
+
+```env
+GOOGLE_CLIENT_ID=your_google_client_id
+```
+
+Frontend:
+
+```env
+VITE_GOOGLE_CLIENT_ID=your_google_client_id
+```
+
+The Google Client ID can be used by the frontend. Do not expose private API keys, JWT secrets, Cloudinary secrets, or other backend secrets in frontend environment variables.
+
+### Authentication Security
+
+The backend verifies the Google ID token using:
+
+```text
+google-auth-library
+```
+
+After successful verification, Imagify creates or finds the user and creates a JWT stored in an HTTP-only cookie.
+
+# Task 2 — Local Domain & HTTPS
 
 Task 2 provides a production-like HTTPS environment locally.
 
-### 1. Configure local domain
+## 1. Configure local domain
 
 Edit:
 
@@ -471,7 +730,7 @@ Verify:
 ping -c 1 imagify.com
 ```
 
-### 2. Install Nginx
+## 2. Install Nginx
 
 ```bash
 brew install nginx
@@ -495,14 +754,14 @@ make sure the `http` block contains:
 include servers/*;
 ```
 
-### 3. Install mkcert
+## 3. Install mkcert
 
 ```bash
 brew install mkcert
 mkcert -install
 ```
 
-### 4. Generate local SSL certificate
+## 4. Generate local SSL certificate
 
 From the project root:
 
@@ -523,7 +782,7 @@ nginx/ssl/
 
 in `.gitignore`.
 
-### 5. Configure Nginx
+## 5. Configure Nginx
 
 Create:
 
@@ -563,7 +822,7 @@ server {
 
 > Update the certificate paths if the project is located somewhere else.
 
-### 6. Test and start Nginx
+## 6. Test and start Nginx
 
 ```bash
 nginx -t
@@ -596,7 +855,7 @@ http://imagify.com
 
 are redirected to HTTPS.
 
-### Task 2 Architecture
+## Task 2 Architecture
 
 ```text
 Browser
@@ -616,9 +875,9 @@ Reverse Proxy
 React/Vite :5173
 ```
 
-## Technical Decisions
+# Technical Decisions
 
-### Sharp
+## Sharp
 
 Used for:
 
@@ -628,20 +887,20 @@ Used for:
 - Upscaling
 - Image metadata extraction
 
-### Multer
+## Multer
 
 Uses `memoryStorage()` for temporary upload handling and validates:
 
 - File type
 - File size
 
-### Cloudinary
+## Cloudinary
 
 Stores original and processed images.
 
 MongoDB stores image metadata and references to Cloudinary resources.
 
-### MongoDB
+## MongoDB
 
 Stores:
 
@@ -650,28 +909,70 @@ Stores:
 - Processing batches
 - Share records
 - Push subscriptions
+- User accounts
+- Guest usage records
 
-### Redis
+## Redis
 
 Redis is used as the backing data store for the BullMQ job queue.
 
-### BullMQ
+## BullMQ
 
 BullMQ manages asynchronous image-processing jobs.
 
 Each image can be processed as an independent background job while the frontend tracks the overall batch progress.
 
-### Image Service
+## Google Authentication
+
+Google Identity Services is used on the frontend to authenticate users.
+
+The backend uses `google-auth-library` to verify the Google ID token.
+
+After verification, the backend creates or finds the corresponding MongoDB user.
+
+## JWT Authentication
+
+JWT is used to maintain the authenticated session.
+
+The JWT is stored in an HTTP-only cookie:
+
+```text
+authToken
+```
+
+The authentication middleware verifies the token and attaches the authenticated user to:
+
+```js
+req.user;
+```
+
+## Usage Tracking
+
+Guest usage is stored separately using a persistent guest identifier:
+
+```text
+Guest → guestId → GuestUsage
+```
+
+Authenticated usage is stored on the user account:
+
+```text
+Google User → User → usageCount
+```
+
+The processing endpoint checks usage before adding jobs to BullMQ.
+
+## Image Service
 
 `server/src/services/image.service.js` contains reusable temporary-file and Cloudinary helpers.
 
 Temporary processing files are removed after each operation.
 
-### React State
+## React State
 
 React local state and props are used instead of Redux because the current application does not require complex global state.
 
-### React Router
+## React Router
 
 React Router is used to provide separate application routes, including temporary shared-result URLs:
 
@@ -680,7 +981,7 @@ React Router is used to provide separate application routes, including temporary
 /share/:token
 ```
 
-### Nginx + mkcert
+## Nginx + mkcert
 
 Nginx provides:
 
@@ -690,7 +991,7 @@ Nginx provides:
 
 mkcert provides locally trusted development certificates.
 
-## Deployment
+# Deployment
 
 Current deployment architecture:
 
@@ -705,9 +1006,13 @@ Production environment variables must be configured on the respective platforms.
 
 For production sharing, `CLIENT_URL` should point to the deployed frontend.
 
-## Current Status
+For Google Login in production, the deployed frontend origin must also be configured in the Google OAuth client settings.
 
-### Completed
+Production authentication cookies should be configured appropriately for the deployed frontend/backend domains, including secure cookie settings.
+
+# Current Status
+
+## Completed
 
 - Image upload and validation
 - Multiple image upload
@@ -735,19 +1040,28 @@ For production sharing, `CLIENT_URL` should point to the deployed frontend.
 - Responsive UI
 - Production deployment
 - Local HTTPS environment
-
-### Planned
-
+- Guest usage limit
+- Persistent guest usage tracking
 - Google Login
-- Usage limits
+- Google ID token verification
+- JWT authentication
+- HTTP-only authentication cookie
+- Authenticated user management
+- Authenticated usage limit
+- Backend usage-limit enforcement
+- Authentication state endpoint
+- Logout
+
+## Planned
+
 - Stripe subscriptions
 - Public image API
 - Chrome screenshot extension
 
-## Repository
+# Repository
 
 GitHub: https://github.com/Deveshwar-cs/Imagify
 
-## Author
+# Author
 
 Deveshwar

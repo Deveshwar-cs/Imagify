@@ -16,6 +16,8 @@ import {
   getSharedProcessedImage,
   getSharedResults,
 } from "../controllers/share.controller.js";
+import {indentifyGuest} from "../middleware/guest.middleware.js";
+import {identifyUserOrGuest} from "../middleware/identify.middleware.js";
 
 const router = express.Router();
 
@@ -24,7 +26,7 @@ router.post("/:imageId/resize", resizeImage);
 router.post("/:imageId/compress", compressImage);
 router.post("/:imageId/quality", improveQuality);
 router.post("/:imageId/upscale", upscaleImage);
-router.post("/process", queueImageProcessing);
+router.post("/process", identifyUserOrGuest, queueImageProcessing);
 router.get("/batches/:batchId", getBatchStatus);
 router.post("/push/subscribe", subscribeToPush);
 router.post("/push/test", testPushNotification);
