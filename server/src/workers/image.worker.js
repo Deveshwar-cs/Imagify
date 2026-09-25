@@ -25,9 +25,9 @@ const imageWorker = new Worker(
 
     let result;
 
-    // -----------------------------
-    // PROCESS IMAGE
-    // -----------------------------
+    // ============================================================
+    // Process image
+    // ============================================================
 
     switch (operation) {
       case "resize":
@@ -50,12 +50,15 @@ const imageWorker = new Worker(
         throw new Error(`Unsupported operation: ${operation}`);
     }
 
-    // -----------------------------
-    // UPDATE COMPLETED IMAGES
-    // -----------------------------
+    // ============================================================
+    // Update batch after successful image processing
+    // ============================================================
 
-    const batch = await ProcessingBatch.findByIdAndUpdate(
-      batchId,
+    const batch = await ProcessingBatch.findOneAndUpdate(
+      {
+        _id: batchId,
+        status: "processing",
+      },
       {
         $inc: {
           completedImages: 1,
@@ -74,31 +77,26 @@ const imageWorker = new Worker(
       `Batch ${batchId}: ${batch.completedImages}/${batch.totalImages} completed`,
     );
 
-    // -----------------------------
-    // CHECK BATCH COMPLETION
-    // -----------------------------
+    // ============================================================
+    // Check whether the entire batch has finished
+    // ============================================================
 
     const processedImages = batch.completedImages + batch.failedImages;
 
     if (processedImages >= batch.totalImages) {
       console.log(`Batch ${batchId} has finished processing`);
 
-      // -----------------------------
-      // MARK BATCH COMPLETE ONCE
-      // -----------------------------
+      const finalStatus = batch.failedImages > 0 ? "failed" : "completed";
 
       const completedBatch = await ProcessingBatch.findOneAndUpdate(
         {
           _id: batchId,
-
-          // Only one job can change this
-          // from false to true.
+          status: "processing",
           notificationSent: false,
         },
         {
           $set: {
-            status: batch.failedImages > 0 ? "failed" : "completed",
-
+            status: finalStatus,
             notificationSent: true,
           },
         },
@@ -107,12 +105,12 @@ const imageWorker = new Worker(
         },
       );
 
-      // -----------------------------
-      // SEND NOTIFICATION ONLY ONCE
-      // -----------------------------
-
       if (completedBatch) {
-        console.log(`Sending completion notification for batch ${batchId}`);
+        console.log(`Batch ${batchId} status updated to ${finalStatus}`);
+
+        // ========================================================
+        // Send completion notification
+        // ========================================================
 
         const subscriptions = await PushSubscription.find();
 
@@ -120,48 +118,54 @@ const imageWorker = new Worker(
 
         for (const subscription of subscriptions) {
           try {
-            await sendPushNotification(
+            const pushResult = await sendPushNotification(
               {
                 endpoint: subscription.endpoint,
-
                 keys: {
                   p256dh: subscription.keys.p256dh,
-
                   auth: subscription.keys.auth,
                 },
               },
               {
                 title: "Imagify",
-
                 body:
                   completedBatch.status === "completed"
                     ? `${completedBatch.totalImages} image${
                         completedBatch.totalImages > 1 ? "s are" : " is"
                       } ready to download.`
                     : "Image processing finished with some failed images.",
-
                 url: `/?batch=${completedBatch._id}`,
               },
             );
 
-            console.log(
-              `Push notification sent to subscription ${subscription._id}`,
-            );
+            // Remove expired or unsubscribed subscriptions
+            if (pushResult?.expired) {
+              await PushSubscription.findByIdAndDelete(subscription._id);
+
+              console.log(
+                `Removed expired push subscription ${subscription._id}`,
+              );
+
+              continue;
+            }
+
+            // Notification was successfully sent
+            if (pushResult?.success) {
+              console.log(
+                `Push notification sent to subscription ${subscription._id}`,
+              );
+            }
           } catch (error) {
             console.error(
-              `Push notification failed for subscription ${subscription._id}:`,
+              `Push notification failed to subscription ${subscription._id}:`,
               error.message,
             );
           }
         }
       } else {
-        console.log(`Notification already sent for batch ${batchId}`);
+        console.log(`Batch ${batchId} was already finalized.`);
       }
     }
-
-    // -----------------------------
-    // JOB COMPLETED
-    // -----------------------------
 
     console.log(`Job ${job.id} completed`);
 
@@ -176,9 +180,9 @@ const imageWorker = new Worker(
   },
 );
 
-// -----------------------------
-// START WORKER
-// -----------------------------
+// ================================================================
+// Worker startup
+// ================================================================
 
 const startWorker = async () => {
   try {
@@ -194,27 +198,32 @@ const startWorker = async () => {
 
 startWorker();
 
-// -----------------------------
-// COMPLETED EVENT
-// -----------------------------
-
-imageWorker.on("completed", (job) => {
-  console.log(`Worker completed job ${job.id}`);
-});
-
-// -----------------------------
-// FAILED EVENT
-// -----------------------------
+// ================================================================
+// Failed job
+// ================================================================
 
 imageWorker.on("failed", async (job, error) => {
-  console.error(`Worker failed job ${job?.id}:`, error.message);
+  console.error(`Worker failed for job ${job?.id}:`, error.message);
 
   if (!job?.data?.batchId) {
     return;
   }
 
   try {
-    const batch = await ProcessingBatch.findById(job.data.batchId);
+    const batch = await ProcessingBatch.findOneAndUpdate(
+      {
+        _id: job.data.batchId,
+        status: "processing",
+      },
+      {
+        $inc: {
+          failedImages: 1,
+        },
+      },
+      {
+        new: true,
+      },
+    );
 
     if (!batch) {
       console.error(`Batch not found: ${job.data.batchId}`);
@@ -222,20 +231,49 @@ imageWorker.on("failed", async (job, error) => {
       return;
     }
 
-    batch.failedImages += 1;
+    console.log(
+      `Batch ${batch._id}: ${batch.completedImages} completed, ${batch.failedImages} failed`,
+    );
+
+    // ============================================================
+    // Check whether the entire batch has finished
+    // ============================================================
 
     const processedImages = batch.completedImages + batch.failedImages;
 
     if (processedImages >= batch.totalImages) {
-      batch.status = "failed";
+      const completedBatch = await ProcessingBatch.findOneAndUpdate(
+        {
+          _id: batch._id,
+          status: "processing",
+          notificationSent: false,
+        },
+        {
+          $set: {
+            status: "failed",
+            notificationSent: true,
+          },
+        },
+        {
+          new: true,
+        },
+      );
+
+      if (completedBatch) {
+        console.log(`Batch ${completedBatch._id} finalized as failed.`);
+      }
     }
-
-    await batch.save();
-
-    console.log(
-      `Batch ${batch._id}: ${batch.completedImages} completed, ${batch.failedImages} failed`,
-    );
   } catch (batchError) {
     console.error("Failed to update batch:", batchError.message);
   }
 });
+
+// ================================================================
+// Worker errors
+// ================================================================
+
+imageWorker.on("error", (error) => {
+  console.error("Image worker error:", error);
+});
+
+export default imageWorker;

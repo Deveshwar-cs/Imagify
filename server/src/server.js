@@ -5,6 +5,9 @@ import imageRoutes from "./routes/image.routes.js";
 import connectDB from "./config/database.js";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes.js";
+import {handleStripeWebhook} from "./controllers/subscription.webhook.controller.js";
+import subscriptionRoutes from "./routes/subscription.routes.js";
+import storageRoutes from "./routes/storage.routes.js";
 
 dotenv.config();
 const app = express();
@@ -23,9 +26,6 @@ app.use(
   }),
 );
 
-app.use(express.json());
-app.use(cookieParser());
-
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,
@@ -33,8 +33,20 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+app.post(
+  "/api/subscription/webhook",
+  express.raw({
+    type: "application/json",
+  }),
+  handleStripeWebhook,
+);
+
+app.use(express.json());
+app.use(cookieParser());
+app.use("/api/subscription", subscriptionRoutes);
 app.use("/api/images", imageRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/storage", storageRoutes);
 
 app.use((error, req, res, next) => {
   console.error("Server error:", error);

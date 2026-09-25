@@ -4,12 +4,17 @@ import fs from "fs/promises";
 import cloudinary from "../config/cloudinary.js";
 import imageQueue from "../queue/image.queue.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
-import {GUEST_IMAGE_LIMIT} from "../config/usage.config.js";
-import {AUTHENTICATED_IMAGE_LIMIT} from "../config/usage.config.js";
-import {getGuestUsage} from "../services/usage.service.js";
-
+import {
+  GUEST_IMAGE_LIMIT,
+  AUTHENTICATED_IMAGE_LIMIT,
+} from "../config/usage.config.js";
+import {
+  reserveGuestUsage,
+  reserveUserUsage,
+  releaseGuestUsage,
+  releaseUserUsage,
+} from "../services/usage.service.js";
 import {sendPushNotification} from "../services/push.services.js";
-
 import {
   createTempFilePath,
   uploadToCloudinary,
@@ -18,9 +23,42 @@ import {
 } from "../services/image.service.js";
 import PushSubscription from "../models/push.subscription.model.js";
 
+/**
+ * --------------------------------------------------------------------------
+ * Helper: Build owner query
+ * --------------------------------------------------------------------------
+ *
+ * Logged-in user:
+ *   { user: userId, guestId: null }
+ *
+ * Guest:
+ *   { user: null, guestId: guestId }
+ *
+ */
+const getOwnerQuery = (req) => {
+  if (req.user) {
+    return {
+      user: req.user._id,
+      guestId: null,
+    };
+  }
+
+  return {
+    user: null,
+    guestId: req.guestId,
+  };
+};
+
+/**
+ * --------------------------------------------------------------------------
+ * Upload Image
+ * --------------------------------------------------------------------------
+ */
 export const uploadImage = async (req, res) => {
   try {
-    if (!req.files) {
+    console.log("Uploaded files:", req.files);
+
+    if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         success: false,
         message: "Please upload an image",
@@ -51,6 +89,10 @@ export const uploadImage = async (req, res) => {
       });
 
       const image = await Image.create({
+        // Logged-in user OR guest
+        user: req.user?._id || null,
+        guestId: req.guestId || null,
+
         originalName: file.originalname,
         fileName: result.public_id,
         mimeType: file.mimetype,
@@ -80,7 +122,7 @@ export const uploadImage = async (req, res) => {
       images: uploadedImages,
     });
   } catch (error) {
-    console.log("Upload image error:", error);
+    console.error("Upload image error:", error);
 
     return res.status(500).json({
       success: false,
@@ -89,9 +131,15 @@ export const uploadImage = async (req, res) => {
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Resize Image
+ * --------------------------------------------------------------------------
+ */
 export const resizeImage = async (req, res) => {
   let inputPath;
   let outputPath;
+
   try {
     const {imageId} = req.params;
     const {width, height} = req.body;
@@ -99,11 +147,14 @@ export const resizeImage = async (req, res) => {
     if (!width && !height) {
       return res.status(400).json({
         success: false,
-        message: "Width or Height is required",
+        message: "Width or height is required",
       });
     }
 
-    const image = await Image.findById(imageId);
+    const image = await Image.findOne({
+      _id: imageId,
+      ...getOwnerQuery(req),
+    });
 
     if (!image) {
       return res.status(404).json({
@@ -130,6 +181,7 @@ export const resizeImage = async (req, res) => {
     }
 
     inputPath = await downloadImageToTemp(image.url);
+
     const extensionMap = {
       "image/jpeg": ".jpg",
       "image/png": ".png",
@@ -145,6 +197,7 @@ export const resizeImage = async (req, res) => {
     if (parsedWidth) {
       resizeOptions.width = parsedWidth;
     }
+
     if (parsedHeight) {
       resizeOptions.height = parsedHeight;
     }
@@ -158,19 +211,18 @@ export const resizeImage = async (req, res) => {
       .toFile(outputPath);
 
     const metadata = await sharp(outputPath).metadata();
+    const stats = await fs.stat(outputPath);
 
-    const status = await fs.stat(outputPath);
-
-    // Upload processed image to Cloudinary
     const result = await uploadToCloudinary(
       outputPath,
       "imagify/processed/resize",
     );
+
     const processedImage = {
       operation: "resize",
       fileName: result.public_id,
       url: result.secure_url,
-      size: status.size,
+      size: stats.size,
       width: metadata.width,
       height: metadata.height,
       mimeType: `image/${metadata.format}`,
@@ -183,6 +235,7 @@ export const resizeImage = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Image resized successfully",
+
       original: {
         fileName: image.fileName,
         size: image.size,
@@ -191,30 +244,42 @@ export const resizeImage = async (req, res) => {
         mimeType: image.mimeType,
         url: image.url,
       },
-      processed: {...processedImage, url: result.secure_url},
+
+      processed: {
+        ...processedImage,
+        url: result.secure_url,
+      },
     });
   } catch (error) {
-    console.error("Resize image error", error);
+    console.error("Resize image error:", error);
 
     return res.status(500).json({
       success: false,
       message: "Failed to resize image",
     });
   } finally {
-    // Remove temporary files
     await cleanupTempFile(inputPath);
     await cleanupTempFile(outputPath);
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Compress Image
+ * --------------------------------------------------------------------------
+ */
 export const compressImage = async (req, res) => {
   let inputPath;
   let outputPath;
+
   try {
     const {imageId} = req.params;
     const {level = "medium"} = req.body;
 
-    const image = await Image.findById(imageId);
+    const image = await Image.findOne({
+      _id: imageId,
+      ...getOwnerQuery(req),
+    });
 
     if (!image) {
       return res.status(404).json({
@@ -227,11 +292,9 @@ export const compressImage = async (req, res) => {
       low: {
         quality: 80,
       },
-
       medium: {
         quality: 60,
       },
-
       high: {
         quality: 40,
       },
@@ -250,11 +313,11 @@ export const compressImage = async (req, res) => {
 
     const extensionMap = {
       "image/jpeg": ".jpeg",
-      "image/png": "png",
+      "image/png": ".png",
       "image/webp": ".webp",
     };
 
-    const extension = extensionMap[image.mimeType] || "jpeg";
+    const extension = extensionMap[image.mimeType] || ".jpeg";
 
     outputPath = createTempFilePath(extension);
 
@@ -272,7 +335,6 @@ export const compressImage = async (req, res) => {
         imageProcessor = imageProcessor.png({
           compressionLevel: 9,
           palette: level === "high",
-          quality: compression.quality,
         });
         break;
 
@@ -292,13 +354,13 @@ export const compressImage = async (req, res) => {
     await imageProcessor.toFile(outputPath);
 
     const metadata = await sharp(outputPath).metadata();
-
     const stats = await fs.stat(outputPath);
 
     const result = await uploadToCloudinary(
       outputPath,
       "imagify/processed/compress",
     );
+
     const processedImage = {
       operation: "compress",
       fileName: result.public_id,
@@ -344,20 +406,32 @@ export const compressImage = async (req, res) => {
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Improve Quality
+ * --------------------------------------------------------------------------
+ */
 export const improveQuality = async (req, res) => {
   let inputPath;
   let outputPath;
+
   try {
     const {imageId} = req.params;
-    const image = await Image.findById(imageId);
+
+    const image = await Image.findOne({
+      _id: imageId,
+      ...getOwnerQuery(req),
+    });
+
     if (!image) {
       return res.status(404).json({
         success: false,
-        message: "Image not found!",
+        message: "Image not found",
       });
     }
 
     inputPath = await downloadImageToTemp(image.url);
+
     const extensionMap = {
       "image/jpeg": ".jpeg",
       "image/png": ".png",
@@ -367,22 +441,23 @@ export const improveQuality = async (req, res) => {
     const extension = extensionMap[image.mimeType] || ".jpeg";
 
     outputPath = createTempFilePath(extension);
-    // const outputFileName = `quality-${Date.now()}-${image.fileName}`;
-
-    // const outputPath = path.join("uploads", outputFileName);
 
     await sharp(inputPath)
-      .sharpen({sigma: 1.2, m1: 1, m2: 2})
+      .sharpen({
+        sigma: 1.2,
+        m1: 1,
+        m2: 2,
+      })
       .toFile(outputPath);
 
     const metadata = await sharp(outputPath).metadata();
-
     const stats = await fs.stat(outputPath);
 
     const result = await uploadToCloudinary(
       outputPath,
       "imagify/processed/quality",
     );
+
     const processedImage = {
       operation: "quality",
       fileName: result.public_id,
@@ -416,10 +491,11 @@ export const improveQuality = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log(error);
-    res.status(500).json({
+    console.error("Improve quality error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: "Unable to Improve quality",
+      message: "Unable to improve quality",
     });
   } finally {
     await cleanupTempFile(inputPath);
@@ -427,19 +503,28 @@ export const improveQuality = async (req, res) => {
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Upscale Image
+ * --------------------------------------------------------------------------
+ */
 export const upscaleImage = async (req, res) => {
   let inputPath;
   let outputPath;
+
   try {
     const {imageId} = req.params;
     const {scale = 2} = req.body;
 
-    const image = await Image.findById(imageId);
+    const image = await Image.findOne({
+      _id: imageId,
+      ...getOwnerQuery(req),
+    });
 
     if (!image) {
       return res.status(404).json({
         success: false,
-        message: "Image not found!",
+        message: "Image not found",
       });
     }
 
@@ -453,10 +538,11 @@ export const upscaleImage = async (req, res) => {
     }
 
     inputPath = await downloadImageToTemp(image.url);
+
     const extensionMap = {
-      "image/jpeg": "jpg",
-      "image/png": "png",
-      "image/webp": "webp",
+      "image/jpeg": ".jpg",
+      "image/png": ".png",
+      "image/webp": ".webp",
     };
 
     const extension = extensionMap[image.mimeType] || ".jpg";
@@ -465,10 +551,6 @@ export const upscaleImage = async (req, res) => {
 
     const newWidth = image.width * parsedScale;
     const newHeight = image.height * parsedScale;
-
-    // const outputFileName = `upscale-${parsedScale}x-${Date.now()}-${image.fileName}`;
-
-    // const outputPath = path.join("uploads", outputFileName);
 
     await sharp(inputPath)
       .resize({
@@ -485,6 +567,7 @@ export const upscaleImage = async (req, res) => {
       outputPath,
       `imagify/processed/upscale/${parsedScale}x`,
     );
+
     const processedImage = {
       operation: `upscale-${parsedScale}x`,
       fileName: result.public_id,
@@ -518,21 +601,35 @@ export const upscaleImage = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log(error);
-    return res
-      .status(500)
-      .json({success: false, message: "Unable to upscale image"});
+    console.error("Upscale image error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Unable to upscale image",
+    });
   } finally {
     await cleanupTempFile(inputPath);
     await cleanupTempFile(outputPath);
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Queue Image Processing
+ * --------------------------------------------------------------------------
+ */
 export const queueImageProcessing = async (req, res) => {
+  let reservationCreated = false;
+  let batch = null;
+  const jobs = [];
+
   try {
     const {imageIds, operation, options = {}} = req.body;
-
     const allowedOperations = ["resize", "compress", "quality", "upscale"];
+
+    // -----------------------------
+    // VALIDATE INPUT
+    // -----------------------------
 
     if (!Array.isArray(imageIds) || imageIds.length === 0) {
       return res.status(400).json({
@@ -548,74 +645,107 @@ export const queueImageProcessing = async (req, res) => {
       });
     }
 
+    // Prevent duplicate image IDs in the same request
+    const uniqueImageIds = [...new Set(imageIds.map(String))];
+    if (uniqueImageIds.length !== imageIds.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Duplicate image IDs are not allowed",
+      });
+    }
+
+    // -----------------------------
+    // FIND ONLY OWNED IMAGES
+    // -----------------------------
+
     const images = await Image.find({
-      _id: {$in: imageIds},
+      _id: {
+        $in: uniqueImageIds,
+      },
+      ...getOwnerQuery(req),
     });
 
-    if (images.length !== imageIds.length) {
+    if (images.length !== uniqueImageIds.length) {
       return res.status(404).json({
         success: false,
         message: "One or more images were not found",
       });
     }
 
-    const imageCount = imageIds.length;
+    const imageCount = images.length;
 
-    let usage;
-    let usageType;
+    // -----------------------------
+    // RESERVE USAGE ATOMICALLY
+    // -----------------------------
+
+    let reservation;
+    let limit;
 
     if (req.user) {
-      usageType = "authenticated";
+      // Authenticated user
+      limit = AUTHENTICATED_IMAGE_LIMIT;
 
-      const remaining = AUTHENTICATED_IMAGE_LIMIT - req.user.usageCount;
-
-      if (imageCount > remaining) {
-        return res.status(429).json({
-          success: false,
-          message: "You have reached your 10 image limit.",
-          usage: {
-            used: req.user.usageCount,
-            limit: AUTHENTICATED_IMAGE_LIMIT,
-            remaining,
-          },
-          requiresLogin: false,
-        });
-      }
-
-      usage = req.user;
+      reservation = await reserveUserUsage(req.user._id, imageCount);
     } else {
-      usageType = "guest";
-
-      const guestUsage = await getGuestUsage(req.guestId);
-
-      const remaining = GUEST_IMAGE_LIMIT - guestUsage.usageCount;
-
-      if (imageCount > remaining) {
-        return res.status(429).json({
+      // Guest
+      if (!req.guestId) {
+        return res.status(400).json({
           success: false,
-          message:
-            "Guest image limit reached. Please login with Google to continue.",
-          usage: {
-            used: guestUsage.usageCount,
-            limit: GUEST_IMAGE_LIMIT,
-            remaining,
-          },
-          requiresLogin: true,
+          message: "Guest identity could not be established",
         });
       }
 
-      usage = guestUsage;
+      limit = GUEST_IMAGE_LIMIT;
+
+      reservation = await reserveGuestUsage(req.guestId, imageCount);
     }
 
-    const batch = await ProcessingBatch.create({
+    // -----------------------------
+    // USAGE LIMIT REACHED
+    // -----------------------------
+
+    if (!reservation.success) {
+      const used = reservation.usage?.usageCount || 0;
+      const remaining = Math.max(limit - used, 0);
+
+      return res.status(429).json({
+        success: false,
+        message: req.user
+          ? `You have reached your ${limit}-image limit.`
+          : `Guest users can process up to ${limit} images. Please login with Google to continue.`,
+
+        usage: {
+          used,
+          limit,
+          remaining,
+        },
+
+        requiresLogin: !req.user,
+      });
+    }
+
+    reservationCreated = true;
+
+    // -----------------------------
+    // CREATE PROCESSING BATCH
+    // -----------------------------
+
+    batch = await ProcessingBatch.create({
+      user: req.user?._id || null,
+      guestId: req.guestId || null,
+
       imageIds: images.map((image) => image._id),
-      totalImages: images.length,
+
+      totalImages: imageCount,
+
       operation,
       options,
+
       status: "processing",
     });
-
-    const jobs = [];
+    // -----------------------------
+    // ADD JOBS TO BULLMQ
+    // -----------------------------
 
     for (const image of images) {
       const job = await imageQueue.add("process-image", {
@@ -628,31 +758,101 @@ export const queueImageProcessing = async (req, res) => {
       jobs.push(job);
     }
 
-    usage.usageCount += imageCount;
+    // -----------------------------
+    // USAGE AFTER RESERVATION
+    // -----------------------------
 
-    await usage.save();
+    const used = reservation.usage.usageCount || 0;
+
+    const remaining = Math.max(limit - used, 0);
+
+    // -----------------------------
+    // RESPONSE
+    // -----------------------------
 
     return res.status(202).json({
       success: true,
       message: "Image processing batch added to queue",
+
       batchId: batch._id,
-      totalImages: images.length,
+
+      totalImages: imageCount,
+
       jobIds: jobs.map((job) => job.id),
+
       operation,
+
       usage: {
-        used: usage.usageCount,
-        limit:
-          usageType === "authenticated"
-            ? AUTHENTICATED_IMAGE_LIMIT
-            : GUEST_IMAGE_LIMIT,
-        remaining:
-          usageType === "authenticated"
-            ? AUTHENTICATED_IMAGE_LIMIT - usage.usageCount
-            : GUEST_IMAGE_LIMIT - usage.usageCount,
+        used,
+        limit,
+        remaining,
       },
     });
   } catch (error) {
     console.error("Queue image processing error:", error);
+
+    // -----------------------------
+    // ROLLBACK BULLMQ JOBS
+    // -----------------------------
+
+    for (const job of jobs) {
+      try {
+        await job.remove();
+      } catch (removeError) {
+        console.error(
+          `Failed to remove BullMQ job ${job.id}:`,
+          removeError.message,
+        );
+      }
+    }
+
+    // -----------------------------
+    // DELETE FAILED BATCH
+    // -----------------------------
+
+    if (batch?._id) {
+      try {
+        await ProcessingBatch.findByIdAndDelete(batch._id);
+      } catch (batchError) {
+        console.error(
+          "Failed to delete failed processing batch:",
+          batchError.message,
+        );
+      }
+    }
+
+    // -----------------------------
+    // ROLLBACK RESERVED USAGE
+    // -----------------------------
+
+    if (reservationCreated) {
+      try {
+        if (req.user) {
+          await releaseUserUsage(
+            req.user._id,
+            jobs.length > 0
+              ? jobs.length
+              : Array.isArray(req.body?.imageIds)
+                ? req.body.imageIds.length
+                : 0,
+          );
+        } else if (req.guestId) {
+          await releaseGuestUsage(
+            req.guestId,
+            jobs.length > 0
+              ? jobs.length
+              : Array.isArray(req.body?.imageIds)
+                ? req.body.imageIds.length
+                : 0,
+          );
+        }
+      } catch (rollbackError) {
+        console.error(
+          "Failed to rollback reserved usage:",
+          rollbackError.message,
+        );
+      }
+    }
 
     return res.status(500).json({
       success: false,
@@ -661,12 +861,20 @@ export const queueImageProcessing = async (req, res) => {
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Get Batch Status
+ * --------------------------------------------------------------------------
+ */
 export const getBatchStatus = async (req, res) => {
   try {
     const {batchId} = req.params;
 
-    const batch = await ProcessingBatch.findById(batchId).populate("imageIds");
-
+    const batch = await ProcessingBatch.findOne({
+      _id: batchId,
+      ...getOwnerQuery(req),
+    }).populate("imageIds");
+    console.log(getBatchStatus);
     if (!batch) {
       return res.status(404).json({
         success: false,
@@ -674,17 +882,29 @@ export const getBatchStatus = async (req, res) => {
       });
     }
 
+    const processedImages = batch.completedImages + batch.failedImages;
+
+    const progress =
+      batch.totalImages > 0
+        ? Math.round((processedImages / batch.totalImages) * 100)
+        : 0;
+
     return res.status(200).json({
       success: true,
+
       batch: {
         id: batch._id,
         status: batch.status,
         operation: batch.operation,
         options: batch.options,
+
         totalImages: batch.totalImages,
+
         completedImages: batch.completedImages,
         failedImages: batch.failedImages,
-        progress: Math.round((batch.completedImages / batch.totalImages) * 100),
+
+        progress,
+
         images: batch.imageIds,
       },
     });
@@ -698,6 +918,11 @@ export const getBatchStatus = async (req, res) => {
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Subscribe To Push Notifications
+ * --------------------------------------------------------------------------
+ */
 export const subscribeToPush = async (req, res) => {
   try {
     const {subscription} = req.body;
@@ -710,9 +935,12 @@ export const subscribeToPush = async (req, res) => {
     }
 
     const savedSubscription = await PushSubscription.findOneAndUpdate(
-      {endpoint: subscription.endpoint},
       {
         endpoint: subscription.endpoint,
+      },
+      {
+        endpoint: subscription.endpoint,
+
         keys: {
           p256dh: subscription.keys.p256dh,
           auth: subscription.keys.auth,
@@ -740,6 +968,11 @@ export const subscribeToPush = async (req, res) => {
   }
 };
 
+/**
+ * --------------------------------------------------------------------------
+ * Test Push Notification
+ * --------------------------------------------------------------------------
+ */
 export const testPushNotification = async (req, res) => {
   try {
     const subscriptions = await PushSubscription.find();
@@ -758,6 +991,7 @@ export const testPushNotification = async (req, res) => {
         await sendPushNotification(
           {
             endpoint: subscription.endpoint,
+
             keys: {
               p256dh: subscription.keys.p256dh,
               auth: subscription.keys.auth,

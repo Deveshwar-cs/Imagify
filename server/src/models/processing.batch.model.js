@@ -2,6 +2,19 @@ import mongoose from "mongoose";
 
 const processingBatchSchema = new mongoose.Schema(
   {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+
+    guestId: {
+      type: String,
+      default: null,
+      index: true,
+    },
+
     status: {
       type: String,
       enum: ["pending", "processing", "completed", "failed"],
