@@ -1,6 +1,6 @@
 import {useState} from "react";
 
-import {subscribeToPush} from "../services/push";
+import {subscribeToPush} from "../../services/push";
 
 const NotificationButton = () => {
   const [loading, setLoading] = useState(false);

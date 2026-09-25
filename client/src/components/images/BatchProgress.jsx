@@ -1,7 +1,6 @@
 import {useEffect, useState} from "react";
 
-import api from "../services/api";
-
+import {getBatchStatus} from "../../services/image.service";
 const BatchProgress = ({batchId, onStatusChange}) => {
   console.log("BatchProgress received batchId:", batchId);
 
@@ -22,10 +21,7 @@ const BatchProgress = ({batchId, onStatusChange}) => {
       setShareLoading(true);
       setShareError("");
       setCopied(false);
-
-      const response = await api.post("/images/share", {
-        batchId,
-      });
+      const response = await getBatchStatus({batchId});
 
       setShareUrl(response.data.share.url);
     } catch (error) {

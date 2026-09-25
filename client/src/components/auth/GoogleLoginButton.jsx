@@ -1,8 +1,11 @@
 import {useEffect, useState} from "react";
 import {GoogleLogin} from "@react-oauth/google";
 
-import api from "../services/api";
-
+import {
+  getCurrentUser,
+  googleLogin,
+  logoutUser,
+} from "../../services/auth.service";
 const GoogleLoginButton = () => {
   const [user, setUser] = useState(null);
   const [showLogin, setShowLogin] = useState(false);
@@ -15,9 +18,9 @@ const GoogleLoginButton = () => {
   useEffect(() => {
     const checkAuthentication = async () => {
       try {
-        const response = await api.get("/auth/me");
-        if (response.data.success) {
-          setUser(response.data.user);
+        const response = await getCurrentUser();
+        if (response.success) {
+          setUser(response.user);
         }
       } catch (error) {
         console.log(error.message);
@@ -38,12 +41,10 @@ const GoogleLoginButton = () => {
     try {
       setLoading(true);
 
-      const response = await api.post("/auth/google", {
-        credential: credentialResponse.credential,
-      });
+      const response = await googleLogin(credentialResponse.credential);
 
-      if (response.data.success) {
-        setUser(response.data.user);
+      if (response.success) {
+        setUser(response.user);
         setShowLogin(false);
       }
     } catch (error) {
@@ -70,8 +71,7 @@ const GoogleLoginButton = () => {
 
   const handleLogout = async () => {
     try {
-      await api.post("/auth/logout");
-
+      await logoutUser();
       setUser(null);
       setShowLogin(false);
     } catch (error) {

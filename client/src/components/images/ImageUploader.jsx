@@ -1,20 +1,16 @@
 import {useEffect, useState} from "react";
-
-import api from "../services/api";
+import {uploadImages} from "../../services/image.service";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
 
-const ImageUploader = ({onUploaded}) => {
+const ImageUploader = ({onUploaded, usage}) => {
   const [files, setFiles] = useState([]);
   const [previews, setPreviews] = useState([]);
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
   const [uploadedImages, setUploadedImages] = useState([]);
-
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -35,14 +31,37 @@ const ImageUploader = ({onUploaded}) => {
 
     const selectedFilesArray = Array.from(selectedFiles);
 
+    // --------------------------------------------------
+    // Check usage limit
+    // --------------------------------------------------
+
+    if (usage && selectedFilesArray.length > usage.remaining) {
+      setError(
+        `You can select only ${usage.remaining} more image${
+          usage.remaining === 1 ? "" : "s"
+        }.`,
+      );
+
+      return;
+    }
+
+    // --------------------------------------------------
+    // Check file types
+    // --------------------------------------------------
+
     const invalidType = selectedFilesArray.find(
       (file) => !allowedTypes.includes(file.type),
     );
 
     if (invalidType) {
       setError("Only JPG, PNG, and WEBP images are supported.");
+
       return;
     }
+
+    // --------------------------------------------------
+    // Check file size
+    // --------------------------------------------------
 
     const oversizedFile = selectedFilesArray.find(
       (file) => file.size > MAX_FILE_SIZE,
@@ -50,12 +69,21 @@ const ImageUploader = ({onUploaded}) => {
 
     if (oversizedFile) {
       setError("Each image must be less than 10 MB.");
+
       return;
     }
+
+    // --------------------------------------------------
+    // Cleanup previous previews
+    // --------------------------------------------------
 
     previews.forEach((preview) => {
       URL.revokeObjectURL(preview);
     });
+
+    // --------------------------------------------------
+    // Create previews
+    // --------------------------------------------------
 
     const previewUrls = selectedFilesArray.map((file) =>
       URL.createObjectURL(file),
@@ -65,20 +93,48 @@ const ImageUploader = ({onUploaded}) => {
     setPreviews(previewUrls);
   };
 
+  // --------------------------------------------------
+  // File input
+  // --------------------------------------------------
+
   const handleFileChange = (event) => {
     processFiles(event.target.files);
+
+    // Allow selecting the same file again
+    event.target.value = "";
   };
+
+  // --------------------------------------------------
+  // Drag and drop
+  // --------------------------------------------------
 
   const handleDrop = (event) => {
     event.preventDefault();
+
     setIsDragging(false);
 
     processFiles(event.dataTransfer.files);
   };
 
+  // --------------------------------------------------
+  // Upload images
+  // --------------------------------------------------
+
   const handleUpload = async () => {
     if (files.length === 0) {
       setError("Please select at least one image.");
+
+      return;
+    }
+
+    // Extra frontend usage check
+    if (usage && files.length > usage.remaining) {
+      setError(
+        `You can upload only ${usage.remaining} more image${
+          usage.remaining === 1 ? "" : "s"
+        }.`,
+      );
+
       return;
     }
 
@@ -92,14 +148,17 @@ const ImageUploader = ({onUploaded}) => {
         formData.append("images", file);
       });
 
-      const response = await api.post("/images/upload", formData);
+      const response = await uploadImages(formData);
 
-      console.log("Uploaded images:", response.data.images);
+      console.log("Upload response:", response);
 
-      setUploadedImages(response.data.images);
-      onUploaded(response.data.images);
+      const images = response.images || [];
+
+      setUploadedImages(images);
+
+      onUploaded(images);
     } catch (error) {
-      console.error(error);
+      console.error("Upload error:", error);
 
       setError(
         error.response?.data?.message ||
@@ -109,6 +168,10 @@ const ImageUploader = ({onUploaded}) => {
       setLoading(false);
     }
   };
+
+  // --------------------------------------------------
+  // Reset
+  // --------------------------------------------------
 
   const reset = () => {
     previews.forEach((preview) => {
@@ -121,17 +184,65 @@ const ImageUploader = ({onUploaded}) => {
     setError("");
   };
 
+  const remainingImages = usage?.remaining ?? null;
+
   return (
     <div className="w-full">
+      {/* --------------------------------------------- */}
+      {/* Usage information */}
+      {/* --------------------------------------------- */}
+
+      {usage && (
+        <div className="mb-5 flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-5 py-4">
+          <div>
+            <p className="text-sm font-medium text-slate-900">Image usage</p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              {usage.used} of {usage.limit} images used
+            </p>
+          </div>
+
+          <div className="text-right">
+            <p className="text-2xl font-bold text-slate-900">
+              {usage.remaining}
+            </p>
+
+            <p className="text-xs text-slate-500">remaining</p>
+          </div>
+        </div>
+      )}
+
+      {/* --------------------------------------------- */}
+      {/* Usage limit reached */}
+      {/* --------------------------------------------- */}
+
+      {usage && remainingImages === 0 && (
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <p className="font-medium text-amber-900">
+            You have reached your image limit.
+          </p>
+
+          <p className="mt-1 text-sm text-amber-700">
+            Please log in or upgrade your plan to continue processing images.
+          </p>
+        </div>
+      )}
+
+      {/* --------------------------------------------- */}
       {/* Upload area */}
-      {files.length === 0 && (
+      {/* --------------------------------------------- */}
+
+      {files.length === 0 && (!usage || remainingImages > 0) && (
         <label
           htmlFor="image-upload"
           onDragOver={(event) => {
             event.preventDefault();
+
             setIsDragging(true);
           }}
-          onDragLeave={() => setIsDragging(false)}
+          onDragLeave={() => {
+            setIsDragging(false);
+          }}
           onDrop={handleDrop}
           className={`flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed px-6 transition ${
             isDragging
@@ -153,11 +264,17 @@ const ImageUploader = ({onUploaded}) => {
 
           <div className="mt-6 flex gap-2 text-xs text-slate-400">
             <span>JPG</span>
+
             <span>•</span>
+
             <span>PNG</span>
+
             <span>•</span>
+
             <span>WEBP</span>
+
             <span>•</span>
+
             <span>Max 10 MB each</span>
           </div>
 
@@ -172,14 +289,20 @@ const ImageUploader = ({onUploaded}) => {
         </label>
       )}
 
+      {/* --------------------------------------------- */}
       {/* Error */}
+      {/* --------------------------------------------- */}
+
       {error && (
         <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
 
+      {/* --------------------------------------------- */}
       {/* Selected images */}
+      {/* --------------------------------------------- */}
+
       {files.length > 0 && (
         <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           {/* Header */}
@@ -195,6 +318,7 @@ const ImageUploader = ({onUploaded}) => {
             </div>
 
             <button
+              type="button"
               onClick={reset}
               disabled={loading}
               className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -248,6 +372,7 @@ const ImageUploader = ({onUploaded}) => {
           {/* Upload button */}
           <div className="border-t border-slate-200 p-6">
             <button
+              type="button"
               onClick={handleUpload}
               disabled={loading}
               className="w-full rounded-xl bg-slate-900 px-5 py-3 font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
@@ -258,7 +383,10 @@ const ImageUploader = ({onUploaded}) => {
             </button>
           </div>
 
+          {/* ----------------------------------------- */}
           {/* Uploaded images */}
+          {/* ----------------------------------------- */}
+
           {uploadedImages.length > 0 && (
             <div className="border-t border-slate-200 p-6">
               <div className="rounded-2xl bg-green-50 p-5">

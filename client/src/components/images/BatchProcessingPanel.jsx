@@ -1,8 +1,12 @@
 import {useState} from "react";
 
-import api from "../services/api";
+import {startImageProcessing} from "../../services/image.service";
 
-const BatchProcessingPanel = ({images, onProcessingStarted}) => {
+const BatchProcessingPanel = ({
+  images,
+  onProcessingStarted,
+  onUsageUpdated,
+}) => {
   const [operation, setOperation] = useState("compress");
 
   const [level, setLevel] = useState("medium");
@@ -17,6 +21,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
 
   const [error, setError] = useState("");
 
+  // ============================================
+  // START IMAGE PROCESSING
+  // ============================================
+
   const handleStartProcessing = async () => {
     if (!images || images.length === 0) {
       setError("Please upload at least one image.");
@@ -27,25 +35,28 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
       setLoading(true);
       setError("");
 
+      // --------------------------------------------
+      // Image IDs
+      // --------------------------------------------
+
       const imageIds = images.map((image) => image.id);
 
       let options = {};
 
+      // --------------------------------------------
       // Resize options
+      // --------------------------------------------
+
       if (operation === "resize") {
         if (!width && !height) {
           setError("Please enter a maximum width or maximum height.");
-
           setLoading(false);
-
           return;
         }
 
         if (width && (!Number.isFinite(Number(width)) || Number(width) <= 0)) {
           setError("Maximum width must be a valid positive number.");
-
           setLoading(false);
-
           return;
         }
 
@@ -54,46 +65,92 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
           (!Number.isFinite(Number(height)) || Number(height) <= 0)
         ) {
           setError("Maximum height must be a valid positive number.");
-
           setLoading(false);
-
           return;
         }
 
         options = {
           width: width ? Number(width) : undefined,
-
           height: height ? Number(height) : undefined,
         };
       }
 
+      // --------------------------------------------
       // Compression options
+      // --------------------------------------------
+
       if (operation === "compress") {
         options = {
           level,
         };
       }
 
+      // --------------------------------------------
       // Upscale options
+      // --------------------------------------------
+
       if (operation === "upscale") {
         options = {
           scale: Number(scale),
         };
       }
 
-      const response = await api.post("/images/process", {
+      // --------------------------------------------
+      // Send processing request
+      // --------------------------------------------
+
+      const response = await startImageProcessing({
         imageIds,
         operation,
         options,
       });
 
-      console.log("Calling onProcessingStarted with:", response.data);
+      console.log("Processing response:", response);
 
-      console.log("Processing batch:", response.data);
+      // --------------------------------------------
+      // Update usage
+      // --------------------------------------------
 
-      onProcessingStarted(response.data);
+      if (response.usage) {
+        onUsageUpdated?.(response.usage);
+      }
+
+      // --------------------------------------------
+      // Notify parent about processing batch
+      // --------------------------------------------
+
+      onProcessingStarted(response);
     } catch (error) {
       console.error("Failed to start processing:", error);
+
+      // --------------------------------------------
+      // Usage limit reached
+      // --------------------------------------------
+
+      if (error.response?.status === 429) {
+        const responseData = error.response.data;
+
+        if (responseData?.usage) {
+          onUsageUpdated?.(responseData.usage);
+        }
+
+        if (responseData?.requiresLogin) {
+          setError(
+            "You have reached your guest image limit. Please log in to continue.",
+          );
+        } else {
+          setError(
+            responseData?.message ||
+              "You have reached your image processing limit.",
+          );
+        }
+
+        return;
+      }
+
+      // --------------------------------------------
+      // Other errors
+      // --------------------------------------------
 
       setError(
         error.response?.data?.message || "Failed to start image processing.",
@@ -105,7 +162,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
 
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-      {/* Header */}
+      {/* ============================================
+          HEADER
+      ============================================ */}
+
       <div>
         <h2 className="text-xl font-semibold text-slate-900">Process Images</h2>
 
@@ -114,7 +174,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
         </p>
       </div>
 
-      {/* Operation */}
+      {/* ============================================
+          OPERATION
+      ============================================ */}
+
       <div className="mt-6">
         <label className="mb-2 block text-sm font-medium text-slate-700">
           Operation
@@ -138,11 +201,15 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
         </select>
       </div>
 
-      {/* Resize */}
+      {/* ============================================
+          RESIZE
+      ============================================ */}
+
       {operation === "resize" && (
         <div className="mt-5">
           <div className="grid gap-4 sm:grid-cols-2">
             {/* Maximum Width */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Maximum Width
@@ -152,7 +219,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
                 type="number"
                 min="1"
                 value={width}
-                onChange={(event) => setWidth(event.target.value)}
+                onChange={(event) => {
+                  setWidth(event.target.value);
+                  setError("");
+                }}
                 placeholder="e.g. 800"
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-slate-400"
               />
@@ -163,6 +233,7 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
             </div>
 
             {/* Maximum Height */}
+
             <div>
               <label className="mb-2 block text-sm font-medium text-slate-700">
                 Maximum Height
@@ -172,7 +243,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
                 type="number"
                 min="1"
                 value={height}
-                onChange={(event) => setHeight(event.target.value)}
+                onChange={(event) => {
+                  setHeight(event.target.value);
+                  setError("");
+                }}
                 placeholder="e.g. 600"
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-slate-400"
               />
@@ -184,6 +258,7 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
           </div>
 
           {/* Aspect Ratio Information */}
+
           <div className="mt-4 rounded-xl bg-slate-50 px-4 py-3">
             <p className="text-sm text-slate-600">
               <span className="font-medium text-slate-900">
@@ -196,7 +271,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
         </div>
       )}
 
-      {/* Compression */}
+      {/* ============================================
+          COMPRESSION
+      ============================================ */}
+
       {operation === "compress" && (
         <div className="mt-5">
           <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -205,7 +283,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
 
           <select
             value={level}
-            onChange={(event) => setLevel(event.target.value)}
+            onChange={(event) => {
+              setLevel(event.target.value);
+              setError("");
+            }}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-slate-400"
           >
             <option value="low">Low — Better quality</option>
@@ -217,7 +298,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
         </div>
       )}
 
-      {/* Upscale */}
+      {/* ============================================
+          UPSCALE
+      ============================================ */}
+
       {operation === "upscale" && (
         <div className="mt-5">
           <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -226,7 +310,10 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
 
           <select
             value={scale}
-            onChange={(event) => setScale(Number(event.target.value))}
+            onChange={(event) => {
+              setScale(Number(event.target.value));
+              setError("");
+            }}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-slate-400"
           >
             <option value={2}>2×</option>
@@ -236,15 +323,22 @@ const BatchProcessingPanel = ({images, onProcessingStarted}) => {
         </div>
       )}
 
-      {/* Error */}
+      {/* ============================================
+          ERROR
+      ============================================ */}
+
       {error && (
         <div className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
           {error}
         </div>
       )}
 
-      {/* Process Button */}
+      {/* ============================================
+          PROCESS BUTTON
+      ============================================ */}
+
       <button
+        type="button"
         onClick={handleStartProcessing}
         disabled={loading}
         className="mt-6 w-full rounded-xl bg-slate-900 px-5 py-3 font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
