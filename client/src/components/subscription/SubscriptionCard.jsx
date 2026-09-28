@@ -8,7 +8,7 @@ import {
   restoreSubscription,
 } from "../../services/subscription.service";
 
-const SubscriptionCard = ({onSubscriptionUpdated}) => {
+const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   const [subscription, setSubscription] = useState(null);
 
   const [restoring, setRestoring] = useState(false);
@@ -32,6 +32,7 @@ const SubscriptionCard = ({onSubscriptionUpdated}) => {
       const data = await getSubscriptionStatus();
 
       setSubscription(data.subscription);
+      onSubscriptionLoaded?.(data.subscription);
 
       return data.subscription;
     } catch (error) {
@@ -270,6 +271,7 @@ const SubscriptionCard = ({onSubscriptionUpdated}) => {
         console.log("Initial subscription:", data.subscription);
 
         setSubscription(data.subscription);
+        onSubscriptionLoaded?.(data.subscription);
       } catch (error) {
         console.error("Load subscription error:", error);
 

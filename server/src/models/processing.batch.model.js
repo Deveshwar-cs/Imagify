@@ -52,7 +52,7 @@ const processingBatchSchema = new mongoose.Schema(
 
     operation: {
       type: String,
-      enum: ["resize", "compress", "quality", "upscale"],
+      enum: ["resize", "compress", "quality", "upscale", "screenshot"],
       required: true,
     },
 

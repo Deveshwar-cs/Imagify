@@ -12,7 +12,8 @@ export const sendPushNotification = async (subscription, payload) => {
       subscription,
       JSON.stringify(payload),
     );
-
+    console.log("Payload for subscription");
+    console.log(JSON.stringify(payload));
     console.log("Push notification sent successfully");
     console.log("Push service status code:", response.statusCode);
 

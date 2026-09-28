@@ -4,9 +4,9 @@
 
 body {
   margin: 0;
+
   width: 360px;
   min-height: 300px;
-
   font-family: Arial, sans-serif;
 
   background: #f8fafc;
@@ -22,6 +22,7 @@ body {
 
 .header {
   text-align: center;
+
   margin-bottom: 24px;
 }
 
@@ -36,16 +37,19 @@ body {
   margin: 6px 0 0;
 
   color: #64748b;
+
   font-size: 14px;
 }
 
 /* =========================================
-   BUTTONS
+   ACTIONS
 ========================================= */
 
 .actions {
   display: flex;
+
   flex-direction: column;
+
   gap: 12px;
 }
 
@@ -53,16 +57,19 @@ body {
   width: 100%;
 
   border: none;
+
   border-radius: 10px;
 
   padding: 14px;
 
   font-size: 15px;
+
   font-weight: 600;
 
   cursor: pointer;
 
   background: #111827;
+
   color: white;
 
   transition:
@@ -80,6 +87,7 @@ body {
 
 .actions button:disabled {
   opacity: 0.5;
+
   cursor: not-allowed;
 }
 
@@ -90,13 +98,13 @@ body {
 .status {
   margin-top: 16px;
 
+  min-height: 18px;
+
   text-align: center;
 
   font-size: 13px;
 
   color: #475569;
-
-  min-height: 18px;
 }
 
 /* =========================================
@@ -107,8 +115,12 @@ body {
   margin-top: 18px;
 }
 
-.preview-container img {
+.screenshot-preview {
   width: 100%;
+
+  max-height: 300px;
+
+  object-fit: contain;
 
   display: block;
 
@@ -116,5 +128,116 @@ body {
 
   border: 1px solid #e2e8f0;
 
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  background: white;
+}
+
+/* =========================================
+   UPLOAD
+========================================= */
+
+.upload-section {
+  margin-top: 14px;
+}
+
+.upload-button {
+  width: 100%;
+
+  border: none;
+
+  border-radius: 10px;
+
+  padding: 13px;
+
+  font-size: 14px;
+
+  font-weight: 600;
+
+  cursor: pointer;
+
+  background: #2563eb;
+
+  color: white;
+}
+
+.upload-button:hover {
+  opacity: 0.9;
+}
+
+.upload-button:disabled {
+  opacity: 0.5;
+
+  cursor: not-allowed;
+}
+
+/* =========================================
+   SHARE
+========================================= */
+
+.share-section {
+  margin-top: 18px;
+
+  padding: 14px;
+
+  border-radius: 10px;
+
+  background: white;
+
+  border: 1px solid #e2e8f0;
+}
+
+.share-title {
+  margin: 0 0 10px;
+
+  font-size: 13px;
+
+  font-weight: 600;
+
+  text-align: center;
+}
+
+.share-section input {
+  width: 100%;
+
+  padding: 9px;
+
+  border: 1px solid #cbd5e1;
+
+  border-radius: 7px;
+
+  font-size: 12px;
+}
+
+.copy-button,
+.open-button {
+  width: 100%;
+
+  margin-top: 8px;
+
+  padding: 9px;
+
+  border: none;
+
+  border-radius: 7px;
+
+  cursor: pointer;
+
+  font-weight: 600;
+}
+
+.copy-button {
+  background: #e2e8f0;
+}
+
+.open-button {
+  background: #111827;
+
+  color: white;
+}
+
+/* =========================================
+   UTILITIES
+========================================= */
+
+.hidden {
+  display: none;
 }

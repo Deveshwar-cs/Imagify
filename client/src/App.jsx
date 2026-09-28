@@ -5,12 +5,15 @@ import Home from "./pages/Home";
 import Login from "./pages/Login";
 import Upload from "./pages/Upload";
 import Storage from "./pages/Storage";
+import Pricing from "./components/subscription/Pricing";
 
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 
 import SharedResults from "./components/shared/SharedResults";
 import SubscriptionSuccess from "./components/subscription/SubscriptionSuccess";
 import SubscriptionCancel from "./components/subscription/SubscriptionCancel";
+import Subscription from "./pages/Subscription";
+import NotificationResults from "./pages/NotificationResults";
 
 const App = () => {
   return (
@@ -32,6 +35,23 @@ const App = () => {
             }
           />
 
+          <Route
+            path="/notification"
+            element={
+              <ProtectedRoute>
+                <NotificationResults />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/pricing" element={<Pricing />} />
+          <Route
+            path="/subscription"
+            element={
+              <ProtectedRoute>
+                <Subscription />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/subscription/success"
             element={<SubscriptionSuccess />}

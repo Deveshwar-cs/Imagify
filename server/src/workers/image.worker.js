@@ -134,7 +134,7 @@ const imageWorker = new Worker(
                         completedBatch.totalImages > 1 ? "s are" : " is"
                       } ready to download.`
                     : "Image processing finished with some failed images.",
-                url: `/?batch=${completedBatch._id}`,
+                url: `/notification?batch=${completedBatch._id}`,
               },
             );
 

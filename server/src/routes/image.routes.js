@@ -15,6 +15,7 @@ import {
 } from "../controllers/image.controller.js";
 
 import {
+  createScreenshotShare,
   createShare,
   getSharedProcessedImage,
   getSharedResults,
@@ -58,5 +59,13 @@ router.post("/share", createShare);
 router.get("/share/:token", getSharedResults);
 
 router.get("/share/:token/processed/:imageId", getSharedProcessedImage);
+
+// ScreenShot
+router.post(
+  "/share/screenshot",
+  identifyUserOrGuest,
+  upload.single("image"),
+  createScreenshotShare,
+);
 
 export default router;

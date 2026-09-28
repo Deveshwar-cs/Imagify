@@ -6,7 +6,9 @@ import imageQueue from "../queue/image.queue.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
 import {
   GUEST_IMAGE_LIMIT,
-  AUTHENTICATED_IMAGE_LIMIT,
+  PLAN_PROCESSING_LIMITS,
+  PLAN_STORAGE_LIMITS,
+  GUEST_STORAGE_LIMIT,
 } from "../config/usage.config.js";
 import {
   reserveGuestUsage,
@@ -64,6 +66,39 @@ export const uploadImage = async (req, res) => {
         message: "Please upload an image",
       });
     }
+
+    // -----------------------------
+    // STORAGE LIMIT CHECK
+    // (runs BEFORE any Cloudinary upload — this is the fix)
+    // -----------------------------
+
+    const ownerQuery = getOwnerQuery(req);
+
+    let storageLimit;
+
+    if (req.user) {
+      const userPlan = req.user.subscription?.plan;
+      storageLimit = PLAN_STORAGE_LIMITS[userPlan] ?? 0;
+    } else {
+      storageLimit = GUEST_STORAGE_LIMIT;
+    }
+
+    const currentStored = await Image.countDocuments(ownerQuery);
+
+    if (currentStored + req.files.length > storageLimit) {
+      return res.status(429).json({
+        success: false,
+        message: `Storage limit reached. Your plan allows ${storageLimit} stored images.`,
+        usage: {
+          stored: currentStored,
+          limit: storageLimit,
+        },
+      });
+    }
+
+    // -----------------------------
+    // UPLOAD LOOP (unchanged from before)
+    // -----------------------------
 
     const uploadedImages = [];
 
@@ -623,6 +658,11 @@ export const queueImageProcessing = async (req, res) => {
   let batch = null;
   const jobs = [];
 
+  // Declared here (outside the try) so the catch block's rollback
+  // can still see the correct reserved amount even if something
+  // throws partway through.
+  let imageCount = 0;
+
   try {
     const {imageIds, operation, options = {}} = req.body;
     const allowedOperations = ["resize", "compress", "quality", "upscale"];
@@ -672,7 +712,7 @@ export const queueImageProcessing = async (req, res) => {
       });
     }
 
-    const imageCount = images.length;
+    imageCount = images.length;
 
     // -----------------------------
     // RESERVE USAGE ATOMICALLY
@@ -682,10 +722,17 @@ export const queueImageProcessing = async (req, res) => {
     let limit;
 
     if (req.user) {
-      // Authenticated user
-      limit = AUTHENTICATED_IMAGE_LIMIT;
+      // Authenticated user — limit now comes from their subscription plan
+      limit = PLAN_PROCESSING_LIMITS[req.user.subscription?.plan] ?? 0;
 
-      reservation = await reserveUserUsage(req.user._id, imageCount);
+      if (limit === 0) {
+        return res.status(403).json({
+          success: false,
+          message: "An active subscription plan is required to process images.",
+        });
+      }
+
+      reservation = await reserveUserUsage(req.user._id, imageCount, limit);
     } else {
       // Guest
       if (!req.guestId) {
@@ -823,28 +870,16 @@ export const queueImageProcessing = async (req, res) => {
 
     // -----------------------------
     // ROLLBACK RESERVED USAGE
+    // (fixed: release exactly what was reserved — imageCount —
+    // instead of jobs.length, which could be lower on a partial failure)
     // -----------------------------
 
-    if (reservationCreated) {
+    if (reservationCreated && imageCount > 0) {
       try {
         if (req.user) {
-          await releaseUserUsage(
-            req.user._id,
-            jobs.length > 0
-              ? jobs.length
-              : Array.isArray(req.body?.imageIds)
-                ? req.body.imageIds.length
-                : 0,
-          );
+          await releaseUserUsage(req.user._id, imageCount);
         } else if (req.guestId) {
-          await releaseGuestUsage(
-            req.guestId,
-            jobs.length > 0
-              ? jobs.length
-              : Array.isArray(req.body?.imageIds)
-                ? req.body.imageIds.length
-                : 0,
-          );
+          await releaseGuestUsage(req.guestId, imageCount);
         }
       } catch (rollbackError) {
         console.error(

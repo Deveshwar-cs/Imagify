@@ -12,6 +12,7 @@ const SharedResults = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  console.log(token);
 
   useEffect(() => {
     const fetchSharedResults = async () => {

@@ -3,6 +3,26 @@ import crypto from "crypto";
 import Share from "../models/share.model.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
 import Image from "../models/image.models.js";
+import sharp from "sharp";
+import cloudinary from "../config/cloudinary.js";
+import {
+  PLAN_STORAGE_LIMITS,
+  GUEST_STORAGE_LIMIT,
+} from "../config/usage.config.js";
+
+const getOwnerQuery = (req) => {
+  if (req.user) {
+    return {
+      user: req.user._id,
+      guestId: null,
+    };
+  }
+
+  return {
+    user: null,
+    guestId: req.guestId,
+  };
+};
 
 export const createShare = async (req, res) => {
   try {
@@ -284,6 +304,213 @@ export const getSharedProcessedImage = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to load shared image",
+    });
+  }
+};
+
+export const createScreenshotShare = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Screenshot file is required",
+      });
+    }
+
+    // ---------------------------------------
+    // Validate screenshot
+    // ---------------------------------------
+
+    if (req.file.mimetype !== "image/png") {
+      return res.status(400).json({
+        success: false,
+        message: "Screenshot must be a PNG image",
+      });
+    }
+
+    // ---------------------------------------
+    // Check storage limit
+    // ---------------------------------------
+
+    const ownerQuery = getOwnerQuery(req);
+    let storageLimit;
+
+    if (req.user) {
+      const userPlan = req.user.subscription?.plan;
+
+      storageLimit = PLAN_STORAGE_LIMITS[userPlan] ?? 0;
+    } else {
+      storageLimit = GUEST_STORAGE_LIMIT;
+    }
+
+    const currentStored = await Image.countDocuments(ownerQuery);
+
+    if (currentStored + 1 > storageLimit) {
+      return res.status(429).json({
+        success: false,
+        message: `Storage limit reached. Your plan allows ${storageLimit} stored images.`,
+        usage: {
+          stored: currentStored,
+          limit: storageLimit,
+        },
+      });
+    }
+
+    // ---------------------------------------
+    // Get image metadata
+    // ---------------------------------------
+
+    const metadata = await sharp(req.file.buffer).metadata();
+
+    // ---------------------------------------
+    // Upload screenshot to Cloudinary
+    // ---------------------------------------
+
+    const result = await new Promise((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          folder: "imagify/originals",
+          resource_type: "image",
+        },
+        (error, result) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        },
+      );
+
+      uploadStream.end(req.file.buffer);
+    });
+
+    // ---------------------------------------
+    // Create Image document
+    // ---------------------------------------
+    const image = await Image.create({
+      user: req.user?._id || null,
+
+      guestId: req.guestId || null,
+
+      originalName: req.file.originalname || "imagify-screenshot.png",
+
+      fileName: result.public_id,
+
+      mimeType: req.file.mimetype,
+
+      size: req.file.size,
+
+      width: metadata.width,
+
+      height: metadata.height,
+
+      url: result.secure_url,
+
+      // Screenshot is already the final image,
+      // so store it as a processed image too.
+      processedImages: [
+        {
+          operation: "screenshot",
+
+          fileName: result.public_id,
+
+          url: result.secure_url,
+
+          size: req.file.size,
+
+          width: metadata.width,
+
+          height: metadata.height,
+
+          mimeType: req.file.mimetype,
+        },
+      ],
+    });
+
+    // ---------------------------------------
+    // Create completed batch
+    // ---------------------------------------
+
+    const batch = await ProcessingBatch.create({
+      user: req.user?._id || null,
+      guestId: req.guestId || null,
+
+      status: "completed",
+
+      imageIds: [image._id],
+
+      totalImages: 1,
+
+      completedImages: 1,
+
+      failedImages: 0,
+
+      operation: "screenshot",
+
+      options: {},
+    });
+
+    // ---------------------------------------
+    // Generate share token
+    // ---------------------------------------
+
+    const token = crypto.randomBytes(32).toString("hex");
+
+    // ---------------------------------------
+    // Share expires after 1 hour
+    // ---------------------------------------
+
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    const share = await Share.create({
+      token,
+
+      batchId: batch._id,
+
+      expiresAt,
+    });
+
+    // ---------------------------------------
+    // Create public URL
+    // ---------------------------------------
+
+    const shareUrl = `${process.env.CLIENT_URL}/share/${token}`;
+
+    console.log("Screenshot share created:", shareUrl);
+
+    return res.status(201).json({
+      success: true,
+
+      message: "Screenshot uploaded and shared successfully",
+
+      share: {
+        token: share.token,
+
+        expiresAt: share.expiresAt,
+
+        url: shareUrl,
+      },
+
+      image: {
+        id: image._id,
+
+        originalName: image.originalName,
+
+        mimeType: image.mimeType,
+
+        size: image.size,
+
+        width: image.width,
+
+        height: image.height,
+      },
+    });
+  } catch (error) {
+    console.error("Create screenshot share error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create screenshot share",
     });
   }
 };

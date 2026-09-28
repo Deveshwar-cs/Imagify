@@ -1,8 +1,29 @@
+// =========================================
+// DOM ELEMENTS
+// =========================================
+
 const captureViewButton = document.getElementById("captureView");
-
 const captureFullPageButton = document.getElementById("captureFullPage");
-
 const status = document.getElementById("status");
+const screenshotPreview = document.getElementById("screenshotPreview");
+const uploadSection = document.getElementById("uploadSection");
+const uploadButton = document.getElementById("uploadButton");
+const shareSection = document.getElementById("shareSection");
+const shareUrl = document.getElementById("shareUrl");
+const copyUrlButton = document.getElementById("copyUrlButton");
+const openUrlButton = document.getElementById("openUrlButton");
+
+let capturedScreenshot = null;
+
+// captureVisibleTab is limited to ~2 calls per second
+const CAPTURE_DELAY_MS = 600;
+
+// Safety limit for endless / infinite-scroll pages
+const MAX_CAPTURES = 60;
+
+// Browser canvas limits (Chrome)
+const MAX_CANVAS_DIMENSION = 32767;
+const MAX_CANVAS_AREA = 268435456;
 
 // =========================================
 // CAPTURE VIEW
@@ -11,7 +32,6 @@ const status = document.getElementById("status");
 captureViewButton.addEventListener("click", async () => {
   try {
     setButtonsDisabled(true);
-
     status.textContent = "Capturing visible area...";
 
     const [tab] = await chrome.tabs.query({
@@ -32,11 +52,9 @@ captureViewButton.addEventListener("click", async () => {
     }
 
     showScreenshot(screenshot);
-
     status.textContent = "Screenshot captured successfully!";
   } catch (error) {
     console.error("Capture View error:", error);
-
     status.textContent = error.message || "Failed to capture screenshot";
   } finally {
     setButtonsDisabled(false);
@@ -48,12 +66,15 @@ captureViewButton.addEventListener("click", async () => {
 // =========================================
 
 captureFullPageButton.addEventListener("click", async () => {
+  let tab = null;
+  let originalX = 0;
+  let originalY = 0;
+
   try {
     setButtonsDisabled(true);
-
     status.textContent = "Preparing full-page capture...";
 
-    const [tab] = await chrome.tabs.query({
+    [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
     });
@@ -62,20 +83,11 @@ captureFullPageButton.addEventListener("click", async () => {
       throw new Error("Active tab not found");
     }
 
-    // ---------------------------------------
-    // Make sure content script exists
-    // ---------------------------------------
-
+    // Content script guards against double injection
     await chrome.scripting.executeScript({
-      target: {
-        tabId: tab.id,
-      },
+      target: {tabId: tab.id},
       files: ["content/content.js"],
     });
-
-    // ---------------------------------------
-    // Get page information
-    // ---------------------------------------
 
     const pageResponse = await chrome.tabs.sendMessage(tab.id, {
       type: "GET_PAGE_INFO",
@@ -87,61 +99,79 @@ captureFullPageButton.addEventListener("click", async () => {
 
     const pageInfo = pageResponse.pageInfo;
 
+    originalX = pageInfo.scrollX;
+    originalY = pageInfo.scrollY;
+
+    const viewportHeight = pageInfo.viewportHeight;
+
     console.log("Page information:", pageInfo);
 
     // ---------------------------------------
-    // Remember original scroll position
+    // Capture loop.
+    // Positions are decided as we go, using the REAL scroll
+    // position and the CURRENT page height, so clamped scrolls
+    // and growing (lazy-loaded) pages are handled correctly.
     // ---------------------------------------
-
-    const originalX = pageInfo.scrollX;
-
-    const originalY = pageInfo.scrollY;
-
-    // ---------------------------------------
-    // Calculate capture positions
-    // ---------------------------------------
-
-    const positions = calculateCapturePositions(
-      pageInfo.height,
-      pageInfo.viewportHeight,
-    );
-
-    console.log("Capture positions:", positions);
 
     const screenshots = [];
+    let requestedY = 0;
 
-    // ---------------------------------------
-    // Capture each section
-    // ---------------------------------------
+    for (let index = 0; index < MAX_CAPTURES; index++) {
+      status.textContent = `Capturing section ${index + 1}...`;
 
-    for (let index = 0; index < positions.length; index++) {
-      const y = positions[index];
-
-      status.textContent = `Capturing ${index + 1} of ${positions.length}...`;
-
-      // Scroll to position
-      await chrome.tabs.sendMessage(tab.id, {
+      const scrollResponse = await chrome.tabs.sendMessage(tab.id, {
         type: "SCROLL_TO",
         x: 0,
-        y,
+        y: requestedY,
       });
 
-      // Small delay for rendering
-      await sleep(150);
+      if (!scrollResponse?.success) {
+        throw new Error("Could not scroll page");
+      }
 
-      // Capture viewport
+      const position = scrollResponse.position;
+      const actualY = Math.round(position.y);
+      const pageHeight = position.height;
+
+      // First shot keeps fixed headers; later shots hide them
+      // so they don't repeat down the page.
+      if (index > 0) {
+        await chrome.tabs.sendMessage(tab.id, {type: "HIDE_FIXED"});
+      }
+
+      // Let the page repaint and respect the capture rate limit
+      await sleep(CAPTURE_DELAY_MS);
+
       const screenshot = await chrome.tabs.captureVisibleTab(tab.windowId, {
         format: "png",
       });
 
-      screenshots.push({
-        dataUrl: screenshot,
-        y,
+      if (!screenshot) {
+        throw new Error(`Screenshot ${index + 1} failed`);
+      }
+
+      screenshots.push({dataUrl: screenshot, y: actualY});
+
+      console.log(`Screenshot ${index + 1}:`, {
+        requestedY,
+        actualY,
+        pageHeight,
       });
+
+      // Done if the browser refused to scroll as far as requested
+      // (we hit the real bottom) or the viewport already reaches the end.
+      const maxScroll = Math.max(0, pageHeight - viewportHeight);
+      const hitBottom = actualY < requestedY - 1 || actualY >= maxScroll - 1;
+
+      if (hitBottom) {
+        break;
+      }
+
+      requestedY = Math.min(actualY + viewportHeight, maxScroll);
     }
 
     // ---------------------------------------
-    // Restore original position
+    // Restore page (scroll + hidden elements)
     // ---------------------------------------
 
     await chrome.tabs.sendMessage(tab.id, {
@@ -150,19 +180,30 @@ captureFullPageButton.addEventListener("click", async () => {
       y: originalY,
     });
 
-    status.textContent = "Stitching screenshots...";
+    // ---------------------------------------
+    // Stitch
+    // ---------------------------------------
 
-    // ---------------------------------------
-    // Stitch screenshots
-    // ---------------------------------------
+    status.textContent = "Stitching screenshots...";
 
     const finalScreenshot = await stitchScreenshots(screenshots, pageInfo);
 
     showScreenshot(finalScreenshot);
-
     status.textContent = "Full-page screenshot captured!";
   } catch (error) {
     console.error("Full Page Capture error:", error);
+
+    if (tab?.id) {
+      try {
+        await chrome.tabs.sendMessage(tab.id, {
+          type: "RESTORE_SCROLL",
+          x: originalX,
+          y: originalY,
+        });
+      } catch (restoreError) {
+        console.error("Could not restore page:", restoreError);
+      }
+    }
 
     status.textContent = error.message || "Failed to capture full page";
   } finally {
@@ -171,76 +212,58 @@ captureFullPageButton.addEventListener("click", async () => {
 });
 
 // =========================================
-// CALCULATE POSITIONS
-// =========================================
-
-function calculateCapturePositions(pageHeight, viewportHeight) {
-  const positions = [];
-
-  let currentY = 0;
-
-  while (currentY < pageHeight) {
-    positions.push(currentY);
-
-    currentY += viewportHeight;
-  }
-
-  return positions;
-}
-
-// =========================================
 // STITCH SCREENSHOTS
 // =========================================
 
 async function stitchScreenshots(screenshots, pageInfo) {
+  if (!screenshots.length) {
+    throw new Error("No screenshots available");
+  }
+
   const images = [];
 
-  // ---------------------------------------
-  // Load screenshots
-  // ---------------------------------------
-
   for (const screenshot of screenshots) {
-    const image = await loadImage(screenshot.dataUrl);
-
     images.push({
-      image,
+      image: await loadImage(screenshot.dataUrl),
       y: screenshot.y,
     });
   }
 
-  if (!images.length) {
-    throw new Error("No screenshots available");
-  }
+  const imageWidth = images[0].image.naturalWidth;
+  const imageHeight = images[0].image.naturalHeight;
 
-  // ---------------------------------------
-  // Get actual image dimensions
-  // ---------------------------------------
-
-  const firstImage = images[0].image;
-
-  const imageWidth = firstImage.naturalWidth;
-
-  const imageHeight = firstImage.naturalHeight;
-
-  // ---------------------------------------
-  // Calculate scale
-  // ---------------------------------------
-
+  // Screenshot pixels per CSS pixel (device pixel ratio)
   const scale = imageWidth / pageInfo.viewportWidth;
 
-  const finalWidth = Math.round(pageInfo.width * scale);
+  // The page ends where the last screenshot ends
+  const lastY = images[images.length - 1].y;
 
-  const finalHeight = Math.round(pageInfo.height * scale);
+  const fullWidth = imageWidth;
+  const fullHeight = Math.round(lastY * scale) + imageHeight;
 
-  // ---------------------------------------
-  // Create canvas
-  // ---------------------------------------
+  // Shrink if the result would exceed browser canvas limits
+  const ratio = Math.min(
+    1,
+    MAX_CANVAS_DIMENSION / fullWidth,
+    MAX_CANVAS_DIMENSION / fullHeight,
+    Math.sqrt(MAX_CANVAS_AREA / (fullWidth * fullHeight)),
+  );
+
+  const canvasWidth = Math.floor(fullWidth * ratio);
+  const canvasHeight = Math.floor(fullHeight * ratio);
+
+  console.log("Stitch info:", {
+    scale,
+    fullWidth,
+    fullHeight,
+    ratio,
+    canvasWidth,
+    canvasHeight,
+  });
 
   const canvas = document.createElement("canvas");
-
-  canvas.width = finalWidth;
-
-  canvas.height = finalHeight;
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
 
   const context = canvas.getContext("2d");
 
@@ -248,38 +271,23 @@ async function stitchScreenshots(screenshots, pageInfo) {
     throw new Error("Could not create canvas context");
   }
 
-  // ---------------------------------------
-  // Draw screenshots
-  // ---------------------------------------
-
+  // Draw each full screenshot at its real page position.
+  // Overlap (only at the last shot) is painted over with identical pixels.
   for (const item of images) {
-    const sourceHeight = Math.min(
-      imageHeight,
-      finalHeight - Math.round(item.y * scale),
-    );
-
-    if (sourceHeight <= 0) {
-      continue;
-    }
-
-    const destinationY = Math.round(item.y * scale);
+    const destinationY = Math.round(item.y * scale * ratio);
 
     context.drawImage(
       item.image,
       0,
       0,
       imageWidth,
-      sourceHeight,
+      imageHeight,
       0,
       destinationY,
-      finalWidth,
-      sourceHeight,
+      canvasWidth,
+      Math.ceil(imageHeight * ratio),
     );
   }
-
-  // ---------------------------------------
-  // Convert canvas to PNG
-  // ---------------------------------------
 
   return canvas.toDataURL("image/png");
 }
@@ -292,13 +300,8 @@ function loadImage(dataUrl) {
   return new Promise((resolve, reject) => {
     const image = new Image();
 
-    image.onload = () => {
-      resolve(image);
-    };
-
-    image.onerror = () => {
-      reject(new Error("Failed to load screenshot"));
-    };
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to load screenshot"));
 
     image.src = dataUrl;
   });
@@ -320,8 +323,8 @@ function sleep(milliseconds) {
 
 function setButtonsDisabled(disabled) {
   captureViewButton.disabled = disabled;
-
   captureFullPageButton.disabled = disabled;
+  uploadButton.disabled = disabled;
 }
 
 // =========================================
@@ -329,27 +332,120 @@ function setButtonsDisabled(disabled) {
 // =========================================
 
 function showScreenshot(screenshot) {
-  let preview = document.getElementById("screenshotPreview");
+  capturedScreenshot = screenshot;
 
-  if (!preview) {
-    preview = document.createElement("img");
+  screenshotPreview.src = screenshot;
+  screenshotPreview.classList.remove("hidden");
 
-    preview.id = "screenshotPreview";
+  uploadSection.classList.remove("hidden");
+  shareSection.classList.add("hidden");
+}
 
-    preview.alt = "Captured screenshot";
+// =========================================
+// DATA URL → BLOB
+// =========================================
 
-    preview.style.width = "100%";
+function dataUrlToBlob(dataUrl) {
+  const parts = dataUrl.split(",");
+  const mimeMatch = parts[0].match(/:(.*?);/);
+  const mimeType = mimeMatch?.[1] || "image/png";
 
-    preview.style.marginTop = "16px";
+  const binary = atob(parts[1]);
+  const bytes = new Uint8Array(binary.length);
 
-    preview.style.borderRadius = "8px";
-
-    preview.style.display = "block";
-
-    preview.style.border = "1px solid #e2e8f0";
-
-    document.querySelector(".container").appendChild(preview);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
   }
 
-  preview.src = screenshot;
+  return new Blob([bytes], {type: mimeType});
 }
+
+// =========================================
+// UPLOAD SCREENSHOT TO IMAGIFY
+// =========================================
+
+uploadButton.addEventListener("click", async () => {
+  if (!capturedScreenshot) {
+    status.textContent = "Please capture a screenshot first.";
+    return;
+  }
+
+  try {
+    uploadButton.disabled = true;
+    status.textContent = "Preparing screenshot...";
+
+    const blob = dataUrlToBlob(capturedScreenshot);
+
+    const file = new File([blob], "imagify-screenshot.png", {
+      type: "image/png",
+    });
+
+    console.log("Screenshot size:", file.size, "bytes");
+
+    const formData = new FormData();
+    formData.append("image", file);
+
+    status.textContent = "Uploading to Imagify...";
+
+    const response = await fetch(
+      "http://localhost:5000/api/images/share/screenshot",
+      {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      },
+    );
+
+    const data = await response.json();
+
+    console.log("Upload response:", data);
+
+    if (!response.ok || !data.success) {
+      throw new Error(data.message || "Failed to upload screenshot");
+    }
+
+    const url = data.share?.url;
+
+    if (!url) {
+      throw new Error("Share URL was not returned");
+    }
+
+    shareUrl.value = url;
+
+    shareSection.classList.remove("hidden");
+    uploadSection.classList.add("hidden");
+
+    status.textContent = "Screenshot shared successfully!";
+  } catch (error) {
+    console.error("Screenshot upload error:", error);
+    status.textContent = error.message || "Failed to upload screenshot";
+  } finally {
+    uploadButton.disabled = false;
+  }
+});
+
+// =========================================
+// COPY SHARE URL
+// =========================================
+
+copyUrlButton.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(shareUrl.value);
+    status.textContent = "Share URL copied!";
+  } catch (error) {
+    console.error("Copy URL error:", error);
+    status.textContent = "Failed to copy URL";
+  }
+});
+
+// =========================================
+// OPEN SHARE URL
+// =========================================
+
+openUrlButton.addEventListener("click", () => {
+  if (!shareUrl.value) {
+    return;
+  }
+
+  chrome.tabs.create({url: shareUrl.value});
+});

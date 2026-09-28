@@ -1,10 +1,7 @@
 import GuestUsage from "../models/guest.usage.model.js";
 import User from "../models/user.model.js";
 
-import {
-  GUEST_IMAGE_LIMIT,
-  AUTHENTICATED_IMAGE_LIMIT,
-} from "../config/usage.config.js";
+import {GUEST_IMAGE_LIMIT} from "../config/usage.config.js";
 
 /*
 |--------------------------------------------------------------------------
@@ -108,11 +105,12 @@ export const getUserUsage = async (userId) => {
 | Reserve Authenticated User Usage
 |--------------------------------------------------------------------------
 |
-| Atomically checks the 10-image limit and increments usage.
+| Atomically checks the caller-supplied limit (the user's actual
+| subscription-plan limit) and increments usage.
 |
 */
 
-export const reserveUserUsage = async (userId, imageCount) => {
+export const reserveUserUsage = async (userId, imageCount, limit) => {
   if (!userId) {
     throw new Error("User ID is required");
   }
@@ -121,12 +119,16 @@ export const reserveUserUsage = async (userId, imageCount) => {
     throw new Error("Image count must be a positive integer");
   }
 
+  if (!Number.isInteger(limit) || limit < 0) {
+    throw new Error("Limit must be a non-negative integer");
+  }
+
   const user = await User.findOneAndUpdate(
     {
       _id: userId,
 
       usageCount: {
-        $lte: AUTHENTICATED_IMAGE_LIMIT - imageCount,
+        $lte: limit - imageCount,
       },
     },
     {

@@ -20,21 +20,47 @@
         <p>Screenshot Tool</p>
       </div>
 
-      <!-- Actions -->
+      <!-- Capture Actions -->
 
       <div class="actions">
-        <button id="captureView">📷 Capture View</button>
+        <button id="captureView">Capture View</button>
 
-        <button id="captureFullPage">📄 Capture Full Page</button>
+        <button id="captureFullPage">Capture Full Page</button>
       </div>
 
       <!-- Status -->
 
       <div id="status" class="status"></div>
 
-      <!-- Screenshot Preview -->
+      <!-- Preview -->
 
-      <div id="previewContainer" class="preview-container"></div>
+      <div id="previewContainer" class="preview-container">
+        <img
+          id="screenshotPreview"
+          class="screenshot-preview hidden"
+          alt="Screenshot preview"
+        />
+      </div>
+
+      <!-- Upload -->
+
+      <div id="uploadSection" class="upload-section hidden">
+        <button id="uploadButton" class="upload-button">
+          ☁️ Send to Imagify
+        </button>
+      </div>
+
+      <!-- Share Result -->
+
+      <div id="shareSection" class="share-section hidden">
+        <p class="share-title">Screenshot shared successfully!</p>
+
+        <input id="shareUrl" type="text" readonly />
+
+        <button id="copyUrlButton" class="copy-button">Copy URL</button>
+
+        <button id="openUrlButton" class="open-button">Open URL</button>
+      </div>
     </div>
 
     <script src="popup.js"></script>

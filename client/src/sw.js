@@ -16,7 +16,7 @@ self.addEventListener("push", (event) => {
     icon: "/pwa-192x192.png",
     badge: "/pwa-192x192.png",
     data: {
-      url: data.url || "/",
+      url: data.url || "/upload",
     },
   };
 
@@ -26,7 +26,7 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
-  const url = event.notification.data?.url || "/";
+  const url = event.notification.data?.url || "/upload";
 
   event.waitUntil(
     self.clients
