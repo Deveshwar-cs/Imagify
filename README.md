@@ -6,9 +6,9 @@ The project also includes a **Chrome Extension** that allows users to capture vi
 
 ---
 
-## 🚀 Features
+## Features
 
-### 🖼️ Image Processing
+### Image Processing
 
 Imagify supports multiple image-processing operations:
 
@@ -26,7 +26,7 @@ Imagify supports multiple image-processing operations:
 - Download processed images
 - Handle processing errors
 
-### ☁️ Image Storage
+### Image Storage
 
 Authenticated users can store their images in Cloudinary.
 
@@ -55,7 +55,7 @@ imagify/
 
 ---
 
-## 🔐 Authentication
+## Authentication
 
 Imagify supports authentication using Google OAuth.
 
@@ -92,7 +92,7 @@ Features include:
 
 ---
 
-## 👤 Guest Users
+## Guest Users
 
 Imagify allows users to use limited functionality without creating an account.
 
@@ -104,7 +104,7 @@ This allows users to try the platform before creating an account.
 
 ---
 
-## 💳 Subscription System
+## Subscription System
 
 Imagify uses **Stripe** for subscription management.
 
@@ -183,7 +183,7 @@ This allows Stripe to calculate the unused portion of the current plan and the r
 
 ---
 
-## 🔄 Scheduled Downgrades
+## Scheduled Downgrades
 
 Downgrades are handled differently from upgrades.
 
@@ -212,7 +212,7 @@ When cancelling a scheduled change, the subscription schedule is released from S
 
 ---
 
-## ❌ Subscription Cancellation
+## Subscription Cancellation
 
 Users can cancel their active subscription.
 
@@ -238,7 +238,7 @@ Subscription Ends
 
 ---
 
-## ⚙️ Background Image Processing
+## Background Image Processing
 
 Image processing is handled asynchronously using:
 
@@ -299,7 +299,7 @@ failed
 
 ---
 
-## 🔔 Push Notifications
+## Push Notifications
 
 Imagify supports PWA push notifications.
 
@@ -325,7 +325,7 @@ The application uses a service worker and Workbox for PWA functionality.
 
 ---
 
-## 🔗 Temporary Image Sharing
+## Temporary Image Sharing
 
 Processed results can be shared using a temporary link.
 
@@ -358,7 +358,7 @@ Share links are temporary and automatically expire.
 
 ---
 
-# 🧩 Chrome Extension
+## Chrome Extension
 
 Imagify also includes a Chrome Extension called **Imagify Screenshot**.
 
@@ -374,7 +374,7 @@ The captured screenshot can then be displayed in the extension popup and used wi
 
 ---
 
-## 📸 Screenshot Types
+## Screenshot Types
 
 ### Visible Area
 
@@ -419,7 +419,7 @@ The user can select a specific area of the webpage and capture only that region.
 
 ---
 
-## 🧱 Chrome Extension Architecture
+## Chrome Extension Architecture
 
 ```text
 Extension Popup
@@ -475,7 +475,7 @@ The content script runs inside web pages and performs operations that require ac
 
 ---
 
-## 🔑 Chrome Extension Permissions
+## Chrome Extension Permissions
 
 The extension uses Manifest V3 permissions such as:
 
@@ -490,9 +490,9 @@ These permissions allow the extension to interact with the active tab, execute s
 
 ---
 
-# 🛠️ Tech Stack
+## Tech Stack
 
-## Frontend
+### Frontend
 
 - React
 - Vite
@@ -502,7 +502,7 @@ These permissions allow the extension to interact with the active tab, execute s
 - PWA
 - Workbox
 
-## Backend
+### Backend
 
 - Node.js
 - Express.js
@@ -516,7 +516,7 @@ These permissions allow the extension to interact with the active tab, execute s
 - Stripe
 - Google OAuth
 
-## Chrome Extension
+### Chrome Extension
 
 - JavaScript
 - Chrome Extension Manifest V3
@@ -525,7 +525,7 @@ These permissions allow the extension to interact with the active tab, execute s
 - Service Workers
 - Chrome Storage API
 
-## Development / Infrastructure
+### Development / Infrastructure
 
 - Nginx
 - mkcert
@@ -538,7 +538,7 @@ These permissions allow the extension to interact with the active tab, execute s
 
 ---
 
-# 📁 Project Structure
+## Project Structure
 
 ```text
 Imagify/
@@ -675,7 +675,7 @@ Imagify/
 
 ---
 
-# 🔄 Application Architecture
+## Application Architecture
 
 Imagify follows a layered full-stack architecture.
 
@@ -693,12 +693,12 @@ Imagify follows a layered full-stack architecture.
                              │
                              ↓
                     ┌─────────────────┐
-                    │   Controllers  │
+                    │   Controllers   │
                     └────────┬────────┘
                              │
                              ↓
                     ┌─────────────────┐
-                    │    Services    │
+                    │    Services     │
                     └──────┬──┬───────┘
                            │  │
                  ┌─────────┘  └──────────┐
@@ -730,9 +730,9 @@ MongoDB
 
 ---
 
-# 📡 API Endpoints
+## API Endpoints
 
-## Authentication
+### Authentication
 
 ```text
 GET  /api/auth/me
@@ -740,7 +740,7 @@ POST /api/auth/google
 POST /api/auth/logout
 ```
 
-## Image Processing
+### Image Processing
 
 ```text
 POST /api/images/upload
@@ -748,7 +748,7 @@ POST /api/images/process
 GET  /api/images/batches/:batchId
 ```
 
-## Storage
+### Storage
 
 ```text
 GET    /api/storage/usage
@@ -757,13 +757,13 @@ POST   /api/storage/upload
 DELETE /api/storage/images/:id
 ```
 
-## Sharing
+### Sharing
 
 ```text
 GET /api/share/:token
 ```
 
-## Subscriptions
+### Subscriptions
 
 ```text
 GET  /api/subscription/status
@@ -782,7 +782,7 @@ POST /api/subscription/webhook
 
 ---
 
-# 📂 Frontend Organization
+## Frontend Organization
 
 The frontend is organized into components, pages, hooks, services, and utilities.
 
@@ -849,9 +849,9 @@ This keeps API logic separate from UI components.
 
 ---
 
-# 🖥️ Local Development
+## Local Development
 
-## Prerequisites
+### Prerequisites
 
 Install:
 
@@ -930,7 +930,7 @@ Do not commit `.env` files or secret credentials to GitHub.
 
 ---
 
-# ▶️ Running the Application
+## Running the Application
 
 ### Start Backend
 
@@ -962,7 +962,7 @@ http://localhost:5173
 
 ---
 
-# 💳 Stripe Local Testing
+## Stripe Local Testing
 
 Use Stripe Test Mode while developing.
 
@@ -1012,7 +1012,7 @@ Use:
 
 ---
 
-# 🌐 Local HTTPS Setup
+## Local HTTPS Setup
 
 Imagify can be run locally using HTTPS with:
 
@@ -1056,7 +1056,7 @@ nginx/ssl/
 
 ---
 
-# 🧩 Chrome Extension Installation
+## Chrome Extension Installation
 
 To install the extension locally:
 
@@ -1096,7 +1096,7 @@ Pin **Imagify Screenshot** from the Chrome extensions menu.
 
 ---
 
-# 🔧 Chrome Extension Development
+## Chrome Extension Development
 
 When making changes:
 
@@ -1128,7 +1128,7 @@ If changing the content script, refresh the webpage before testing.
 
 ---
 
-# 🐛 Debugging
+## Debugging
 
 ### Extension Popup
 
@@ -1160,7 +1160,7 @@ Content-script logs will appear there.
 
 ---
 
-# 🔒 Security Considerations
+## Security Considerations
 
 Imagify uses several security mechanisms:
 
@@ -1186,8 +1186,9 @@ image/webp
 
 ---
 
-# ☁️ Cloudinary Storage
+## Cloudinary Storage
 
 Cloudinary is used for persistent image storage.
 
 The application separates original and processed images into different
+folders to keep uploaded files organized.
