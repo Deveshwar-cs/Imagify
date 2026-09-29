@@ -1,1067 +1,1193 @@
 # Imagify
 
-Imagify is a modern image-processing platform that lets users upload images and perform common optimization and enhancement operations through a SaaS-style interface.
+**Imagify** is a full-stack SaaS-style image processing platform that allows users to upload, optimize, process, store, download, and temporarily share images.
 
-## Features
+The project also includes a **Chrome Extension** that allows users to capture visible-area, full-page, and selected-area screenshots and use Imagify's image-processing capabilities.
 
-- Upload JPG, PNG, and WEBP images
-- Multiple image upload
-- 10 MB upload limit per image
-- Guest usage limit of 4 processed images
-- Google Login
-- Authenticated user usage limit of 10 processed images
-- Persistent usage tracking
-- Backend-enforced usage limits
-- Resize with custom dimensions and aspect-ratio preservation
-- Compress with low, medium, and high levels
-- Improve image quality with sharpening
+---
+
+## 🚀 Features
+
+### 🖼️ Image Processing
+
+Imagify supports multiple image-processing operations:
+
+- Upload JPG, JPEG, PNG, and WEBP images
+- Maximum upload size of 10 MB per image
+- Resize images using custom width and height
+- Maintain aspect ratio while resizing
+- Improve image quality
+- Compress images using different compression levels
 - Upscale images by 2× or 3×
-- Original vs processed preview
-- Image dimensions and file size
+- Process multiple images
+- View processing progress
+- Compare original and processed images
+- Display image dimensions and file sizes
 - Download processed images
-- Cloudinary image storage
-- Background image processing with BullMQ
-- Redis-backed job queue
-- Batch processing with progress tracking
-- Push notifications when processing completes
-- Progressive Web App (PWA)
-- Temporary image sharing
-- Unique share tokens
-- One-hour share-link expiration
-- Server-side expiration validation
-- Secure server-side image proxy for shared images
-- Automatic cleanup of expired share records with MongoDB TTL
-- Loading, success, and error states
-- Responsive SaaS-style UI
-- Local HTTPS development with `https://imagify.com`
+- Handle processing errors
 
-## Tech Stack
+### ☁️ Image Storage
 
-**Frontend**
+Authenticated users can store their images in Cloudinary.
+
+Storage functionality includes:
+
+- Upload images to personal storage
+- View stored images
+- Track storage usage
+- Delete stored images
+- Storage limits based on subscription plan
+- Guest usage limits
+- Cloudinary-based image storage
+
+Original images are stored separately from processed images.
+
+Example Cloudinary folders:
+
+```text
+imagify/
+├── originals/
+└── processed/
+    ├── resize/
+    ├── compress/
+    └── quality/
+```
+
+---
+
+## 🔐 Authentication
+
+Imagify supports authentication using Google OAuth.
+
+Authentication flow:
+
+```text
+User
+  ↓
+Google Login
+  ↓
+Google Credential
+  ↓
+Backend Verification
+  ↓
+Find/Create User
+  ↓
+JWT
+  ↓
+HTTP-only Cookie
+  ↓
+Authenticated Requests
+```
+
+Features include:
+
+- Google OAuth login
+- JWT authentication
+- HTTP-only authentication cookies
+- Protected frontend routes
+- Protected backend routes
+- Guest users
+- Guest identification using a guest ID
+- Automatic user creation when logging in for the first time
+
+---
+
+## 👤 Guest Users
+
+Imagify allows users to use limited functionality without creating an account.
+
+Guest users are identified using a generated `guestId`.
+
+Guest usage is limited separately from authenticated users.
+
+This allows users to try the platform before creating an account.
+
+---
+
+## 💳 Subscription System
+
+Imagify uses **Stripe** for subscription management.
+
+Available plans:
+
+- Starter
+- Premium
+- Enterprise
+
+Subscription functionality includes:
+
+- Create subscription through Stripe Checkout
+- View current subscription
+- Upgrade subscription
+- Preview upgrade amount
+- Apply prorated billing
+- Schedule downgrades
+- Cancel subscription
+- Restore a cancelled subscription
+- Cancel a scheduled plan change
+- Stripe webhook synchronization
+
+### Subscription Flow
+
+```text
+User selects plan
+       ↓
+Stripe Checkout
+       ↓
+Payment
+       ↓
+Stripe Subscription
+       ↓
+Webhook
+       ↓
+Backend
+       ↓
+MongoDB
+       ↓
+Updated subscription status
+```
+
+### Upgrade Preview
+
+Before upgrading, Imagify can request a preview from Stripe.
+
+The backend calculates the expected amount using the current subscription and the selected future price.
+
+The preview does not modify the actual subscription.
+
+Example:
+
+```text
+Current Plan
+     ↓
+Select New Plan
+     ↓
+Preview Stripe Invoice
+     ↓
+Display Amount Due
+     ↓
+User Confirms
+     ↓
+Update Subscription
+```
+
+### Proration
+
+Subscription upgrades use Stripe's:
+
+```js
+proration_behavior: "always_invoice";
+```
+
+This allows Stripe to calculate the unused portion of the current plan and the remaining cost of the new plan, then create an invoice for the prorated difference.
+
+---
+
+## 🔄 Scheduled Downgrades
+
+Downgrades are handled differently from upgrades.
+
+Instead of immediately replacing the current subscription price, Imagify uses a **Stripe Subscription Schedule**.
+
+Example:
+
+```text
+Current Plan
+Premium
+   ↓
+User selects Starter
+   ↓
+Subscription Schedule
+   ↓
+Premium remains active
+   ↓
+Current billing period ends
+   ↓
+Starter becomes active
+```
+
+Users can cancel the scheduled downgrade before it takes effect.
+
+When cancelling a scheduled change, the subscription schedule is released from Stripe and the scheduled-plan information is cleared from MongoDB.
+
+---
+
+## ❌ Subscription Cancellation
+
+Users can cancel their active subscription.
+
+The subscription is configured to cancel at the end of the current billing period rather than immediately removing access.
+
+Users can also restore the subscription before the cancellation date.
+
+Flow:
+
+```text
+Active Subscription
+       ↓
+Cancel Subscription
+       ↓
+cancel_at_period_end = true
+       ↓
+Subscription remains active
+       ↓
+Billing Period Ends
+       ↓
+Subscription Ends
+```
+
+---
+
+## ⚙️ Background Image Processing
+
+Image processing is handled asynchronously using:
+
+- Redis
+- BullMQ
+- Workers
+- Sharp
+
+Instead of keeping the HTTP request open while processing images, Imagify creates a processing batch and sends the job to a queue.
+
+### Processing Flow
+
+```text
+Frontend
+   ↓
+POST /images/process
+   ↓
+Backend
+   ↓
+Create Processing Batch
+   ↓
+BullMQ Queue
+   ↓
+Redis
+   ↓
+Image Worker
+   ↓
+Sharp
+   ↓
+Cloudinary
+   ↓
+Update Processing Batch
+   ↓
+Frontend checks progress
+```
+
+### Processing Batch
+
+A processing batch keeps track of:
+
+- Processing status
+- Image IDs
+- Total images
+- Completed images
+- Failed images
+- Processing operation
+- Processing options
+- Notification status
+
+Possible statuses include:
+
+```text
+pending
+processing
+completed
+failed
+```
+
+---
+
+## 🔔 Push Notifications
+
+Imagify supports PWA push notifications.
+
+Users can enable browser notifications and receive a notification when background image processing is completed.
+
+Example flow:
+
+```text
+Image Processing
+      ↓
+BullMQ Worker
+      ↓
+Processing Completed
+      ↓
+Push Notification
+      ↓
+Browser Notification
+      ↓
+Notification Results Page
+```
+
+The application uses a service worker and Workbox for PWA functionality.
+
+---
+
+## 🔗 Temporary Image Sharing
+
+Processed results can be shared using a temporary link.
+
+The sharing system uses:
+
+- Secure random tokens
+- Share records stored in MongoDB
+- Expiration time
+- TTL index
+
+Example flow:
+
+```text
+Processing Completed
+       ↓
+Create Share Token
+       ↓
+Store Token
+       ↓
+Generate Share URL
+       ↓
+User Shares URL
+       ↓
+Recipient Opens URL
+       ↓
+Shared Results
+```
+
+Share links are temporary and automatically expire.
+
+---
+
+# 🧩 Chrome Extension
+
+Imagify also includes a Chrome Extension called **Imagify Screenshot**.
+
+The extension is built using **Chrome Extension Manifest V3**.
+
+It allows users to capture:
+
+- Visible area screenshots
+- Full-page screenshots
+- Selected-area screenshots
+
+The captured screenshot can then be displayed in the extension popup and used with Imagify functionality.
+
+---
+
+## 📸 Screenshot Types
+
+### Visible Area
+
+Captures the currently visible portion of the webpage.
+
+```text
+Browser Viewport
+       ↓
+Capture Visible Area
+       ↓
+Screenshot
+```
+
+### Full Page
+
+The extension captures multiple viewport sections and combines them into one large screenshot.
+
+```text
+Page
+────────────────
+Section 1
+────────────────
+Section 2
+────────────────
+Section 3
+────────────────
+Section 4
+────────────────
+       ↓
+Capture Sections
+       ↓
+Combine Images
+       ↓
+Full Page Screenshot
+```
+
+The extension also handles fixed and sticky page elements to prevent them from appearing repeatedly in stitched screenshots.
+
+### Selected Area
+
+The user can select a specific area of the webpage and capture only that region.
+
+---
+
+## 🧱 Chrome Extension Architecture
+
+```text
+Extension Popup
+      ↓
+Background Service Worker
+      ↓
+Content Script
+      ↓
+Web Page
+      ↓
+Screenshot Capture
+      ↓
+Background Service Worker
+      ↓
+Extension Popup
+```
+
+### Popup
+
+Located at:
+
+```text
+chrome-extension/popup/
+```
+
+The popup contains:
+
+- `popup.html`
+- `popup.css`
+- `popup.js`
+
+It provides the extension's user interface and screenshot controls.
+
+### Background Service Worker
+
+Located at:
+
+```text
+chrome-extension/background/service-worker.js
+```
+
+The service worker coordinates extension-level operations and communicates between the popup and content script.
+
+### Content Script
+
+Located at:
+
+```text
+chrome-extension/content/content.js
+```
+
+The content script runs inside web pages and performs operations that require access to the page's DOM or page environment.
+
+---
+
+## 🔑 Chrome Extension Permissions
+
+The extension uses Manifest V3 permissions such as:
+
+```text
+activeTab
+tabs
+scripting
+storage
+```
+
+These permissions allow the extension to interact with the active tab, execute scripts, and store extension data.
+
+---
+
+# 🛠️ Tech Stack
+
+## Frontend
 
 - React
 - Vite
 - Tailwind CSS
 - Axios
 - React Router
-- `@react-oauth/google`
-- vite-plugin-pwa
+- PWA
+- Workbox
 
-**Backend**
+## Backend
 
 - Node.js
 - Express.js
-- MongoDB / Mongoose
+- MongoDB
+- Mongoose
 - Sharp
 - Multer
 - Cloudinary
 - Redis
 - BullMQ
-- Web Push
-- `google-auth-library`
-- JSON Web Token (`jsonwebtoken`)
+- Stripe
+- Google OAuth
 
-**Infrastructure**
+## Chrome Extension
+
+- JavaScript
+- Chrome Extension Manifest V3
+- Chrome Extension APIs
+- Content Scripts
+- Service Workers
+- Chrome Storage API
+
+## Development / Infrastructure
 
 - Nginx
 - mkcert
-- Local HTTPS
-- Vercel
-- Render
 - MongoDB Atlas
 - Cloudinary
+- Stripe
+- Redis
+- Vercel
+- Render
 
-## Project Structure
+---
+
+# 📁 Project Structure
 
 ```text
 Imagify/
-├── client/
-│   └── src/
-│       ├── components/
-│       ├── pages/
-│       ├── services/
-│       └── ...
-├── server/
-│   └── src/
-│       ├── config/
-│       ├── controllers/
-│       ├── middleware/
-│       ├── models/
-│       ├── routes/
-│       ├── services/
-│       ├── workers/
-│       └── server.js
-├── nginx/
+│
+├── chrome-extension/                  # Chrome screenshot extension
+│   │
+│   ├── background/
+│   │   └── service-worker.js          # Background service worker
+│   │
+│   ├── content/
+│   │   └── content.js                 # Page interaction and screenshot logic
+│   │
+│   ├── popup/
+│   │   ├── popup.css                  # Popup styles
+│   │   ├── popup.html                 # Popup UI
+│   │   └── popup.js                   # Popup logic
+│   │
+│   └── manifest.json                  # Chrome extension configuration
+│
+├── client/                            # React frontend
+│   │
+│   ├── dev-dist/                      # Generated PWA development files
+│   │
+│   ├── public/                        # Public/static files
+│   │   ├── favicon.svg
+│   │   ├── icons.svg
+│   │   ├── pwa-192x192.png
+│   │   └── pwa-512x512.png
+│   │
+│   ├── src/
+│   │   │
+│   │   ├── assets/                    # Frontend assets
+│   │   │
+│   │   ├── components/                # Reusable React components
+│   │   │   ├── auth/
+│   │   │   ├── context/
+│   │   │   ├── layout/
+│   │   │   ├── notifications/
+│   │   │   ├── shared/
+│   │   │   ├── subscription/
+│   │   │   └── upload/
+│   │   │
+│   │   ├── hooks/                     # Custom React hooks
+│   │   │   ├── upload/
+│   │   │   └── useAuth.js
+│   │   │
+│   │   ├── pages/                     # Application pages
+│   │   │
+│   │   ├── services/                  # API service functions
+│   │   │
+│   │   ├── utils/                     # Utility functions
+│   │   │
+│   │   ├── App.jsx                    # Main application component
+│   │   ├── index.css                  # Global styles
+│   │   ├── main.jsx                   # React entry point
+│   │   └── sw.js                      # PWA service worker
+│   │
+│   ├── eslint.config.js
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js
+│
+├── nginx/                             # Local HTTPS configuration
+│   │
 │   ├── servers/
+│   │   └── imagify.conf               # Nginx server configuration
+│   │
 │   └── ssl/
+│       ├── imagify-key.pem            # Local SSL private key
+│       └── imagify.pem                # Local SSL certificate
+│
+├── server/                            # Node/Express backend
+│   │
+│   ├── src/
+│   │   │
+│   │   ├── config/                    # Application configuration
+│   │   │   ├── cloudinary.js
+│   │   │   ├── database.js
+│   │   │   ├── multer.js
+│   │   │   ├── redis.js
+│   │   │   ├── stripe.js
+│   │   │   ├── subscription.plan.js
+│   │   │   └── usage.config.js
+│   │   │
+│   │   ├── controllers/               # Request/business logic
+│   │   │   ├── auth.controller.js
+│   │   │   ├── image.controller.js
+│   │   │   ├── share.controller.js
+│   │   │   ├── storage.controller.js
+│   │   │   ├── subscription.controller.js
+│   │   │   └── subscription.webhook.controller.js
+│   │   │
+│   │   ├── middleware/                # Request middleware
+│   │   │   ├── auth.middleware.js
+│   │   │   ├── guest.middleware.js
+│   │   │   └── identify.middleware.js
+│   │   │
+│   │   ├── models/                    # Mongoose models
+│   │   │   ├── guest.usage.model.js
+│   │   │   ├── image.models.js
+│   │   │   ├── processing.batch.model.js
+│   │   │   ├── push.subscription.model.js
+│   │   │   ├── share.model.js
+│   │   │   └── user.model.js
+│   │   │
+│   │   ├── queue/                     # BullMQ queues
+│   │   │   └── image.queue.js
+│   │   │
+│   │   ├── routes/                    # API routes
+│   │   │   ├── auth.routes.js
+│   │   │   ├── image.routes.js
+│   │   │   ├── storage.routes.js
+│   │   │   └── subscription.routes.js
+│   │   │
+│   │   ├── services/                  # Application services
+│   │   │   ├── google.auth.service.js
+│   │   │   ├── image.processing.service.js
+│   │   │   ├── image.service.js
+│   │   │   ├── push.services.js
+│   │   │   └── usage.service.js
+│   │   │
+│   │   ├── utils/                     # Backend utilities
+│   │   │
+│   │   ├── workers/                   # Background workers
+│   │   │   └── image.worker.js
+│   │   │
+│   │   └── server.js                  # Backend entry point
+│   │
+│   ├── package-lock.json
+│   └── package.json
+│
 └── README.md
 ```
 
-# Authentication & Usage Limits
+---
 
-Imagify supports both anonymous guest usage and authenticated Google users.
+# 🔄 Application Architecture
 
-## Guest Usage
-
-Users can process up to **4 images** without logging in.
-
-Guest usage is tracked using a unique `guestId` stored in an HTTP-only cookie.
+Imagify follows a layered full-stack architecture.
 
 ```text
-Guest
-  ↓
-Process Images
-  ↓
-Guest Usage Count
-  ↓
-Maximum 4 Images
-  ↓
-Limit Reached
-  ↓
-Google Login Required
+                    ┌─────────────────┐
+                    │     Client      │
+                    │ React + Vite    │
+                    └────────┬────────┘
+                             │
+                             ↓
+                    ┌─────────────────┐
+                    │     Routes      │
+                    │    Express      │
+                    └────────┬────────┘
+                             │
+                             ↓
+                    ┌─────────────────┐
+                    │   Controllers  │
+                    └────────┬────────┘
+                             │
+                             ↓
+                    ┌─────────────────┐
+                    │    Services    │
+                    └──────┬──┬───────┘
+                           │  │
+                 ┌─────────┘  └──────────┐
+                 ↓                       ↓
+          ┌─────────────┐         ┌─────────────┐
+          │  MongoDB    │         │ Cloudinary  │
+          └─────────────┘         └─────────────┘
 ```
 
-Refreshing the browser does not reset the guest usage because the guest identifier is stored in a persistent cookie and usage is stored in MongoDB.
-
-## Google Login
-
-Imagify uses Google Identity Services for authentication.
-
-The frontend receives a Google credential and sends it to the backend:
+For asynchronous processing:
 
 ```text
-Google Login
-     ↓
-Google Credential
-     ↓
-React
-     ↓
-POST /api/auth/google
-     ↓
-Backend verifies Google ID token
-     ↓
-Find or Create User
-     ↓
-Generate JWT
-     ↓
-HTTP-only authToken Cookie
-```
-
-Google credentials are verified on the backend using `google-auth-library`.
-
-The backend never trusts user information sent directly from the frontend without verifying the Google credential.
-
-## Authenticated Usage
-
-Authenticated users can process up to **10 images**.
-
-Usage is stored in the `User` MongoDB document:
-
-```js
-{
-  googleId: "...",
-  name: "...",
-  email: "...",
-  picture: "...",
-  usageCount: 0
-}
-```
-
-The backend checks the user's current usage before creating processing jobs.
-
-```text
-Authenticated User
-       ↓
-Process Images
-       ↓
-User.usageCount
-       ↓
-Maximum 10 Images
-```
-
-Usage limits are enforced on the backend, so modifying frontend code cannot bypass the processing limit.
-
-## Authentication Endpoints
-
-| Operation    | Endpoint                | Description                          |
-| ------------ | ----------------------- | ------------------------------------ |
-| Google Login | `POST /api/auth/google` | Authenticate using Google credential |
-| Current User | `GET /api/auth/me`      | Get authenticated user information   |
-| Logout       | `POST /api/auth/logout` | Clear authentication cookie          |
-
-### Google Login
-
-Request:
-
-```json
-{
-  "credential": "GOOGLE_ID_TOKEN"
-}
-```
-
-Successful response:
-
-```json
-{
-  "success": true,
-  "message": "Google login successful",
-  "user": {
-    "id": "...",
-    "name": "Deveshwar Rajput",
-    "email": "user@example.com",
-    "picture": "...",
-    "usageCount": 0
-  }
-}
-```
-
-The backend creates an HTTP-only `authToken` cookie containing a JWT.
-
-### Current User
-
-```text
-GET /api/auth/me
-```
-
-Requires the authenticated `authToken` cookie.
-
-Example response:
-
-```json
-{
-  "success": true,
-  "user": {
-    "id": "...",
-    "name": "Deveshwar Rajput",
-    "email": "user@example.com",
-    "picture": "...",
-    "usageCount": 3
-  }
-}
-```
-
-### Logout
-
-```text
-POST /api/auth/logout
-```
-
-The backend clears the `authToken` cookie.
-
-## Usage Limit Flow
-
-```text
-                 ┌──────────────────┐
-                 │      Upload      │
-                 └────────┬─────────┘
-                          ↓
-                 ┌──────────────────┐
-                 │  Process Images  │
-                 └────────┬─────────┘
-                          ↓
-                 ┌──────────────────┐
-                 │ Authenticated?   │
-                 └───────┬───┬──────┘
-                         │   │
-                    No   │   │   Yes
-                         ↓   ↓
-                    Guest    User
-                      ↓        ↓
-                   Limit 4   Limit 10
-                      ↓        ↓
-                 Usage Check
-                      ↓
-              ┌───────┴────────┐
-              │                │
-           Available         Limit
-              ↓                ↓
-          Process          Block Request
-                              ↓
-                       Google Login
-```
-
-## Usage Configuration
-
-Usage limits are centralized in:
-
-```text
-server/src/config/usage.config.js
-```
-
-```js
-export const GUEST_IMAGE_LIMIT = 4;
-export const AUTHENTICATED_IMAGE_LIMIT = 10;
-```
-
-This keeps usage limits separate from the processing controller and makes them easy to change.
-
-# Image Processing Flow
-
-```text
-Upload
+Client
   ↓
-Multer memoryStorage
+Controller
   ↓
-Cloudinary
-  ↓
-MongoDB image metadata
-  ↓
-Create processing batch
-  ↓
-BullMQ queue
+BullMQ Queue
   ↓
 Redis
   ↓
-Background worker
+Worker
   ↓
-Download image temporarily
-  ↓
-Sharp processing
+Sharp
   ↓
 Cloudinary
   ↓
-MongoDB processed-image metadata
-  ↓
-Batch progress update
-  ↓
-Preview / Download
+MongoDB
 ```
 
-Temporary processing files are removed after each operation.
+---
 
-## Supported Operations
-
-| Operation | Description                               |
-| --------- | ----------------------------------------- |
-| Resize    | Resize images using custom dimensions     |
-| Compress  | Reduce image file size                    |
-| Quality   | Improve image appearance using sharpening |
-| Upscale   | Increase image dimensions by 2× or 3×     |
-
-# API
+# 📡 API Endpoints
 
 ## Authentication
 
-| Operation    | Endpoint                |
-| ------------ | ----------------------- |
-| Google Login | `POST /api/auth/google` |
-| Current User | `GET /api/auth/me`      |
-| Logout       | `POST /api/auth/logout` |
+```text
+GET  /api/auth/me
+POST /api/auth/google
+POST /api/auth/logout
+```
 
 ## Image Processing
 
-| Operation | Endpoint                             |
-| --------- | ------------------------------------ |
-| Upload    | `POST /api/images/upload`            |
-| Resize    | `POST /api/images/:imageId/resize`   |
-| Compress  | `POST /api/images/:imageId/compress` |
-| Quality   | `POST /api/images/:imageId/quality`  |
-| Upscale   | `POST /api/images/:imageId/upscale`  |
+```text
+POST /api/images/upload
+POST /api/images/process
+GET  /api/images/batches/:batchId
+```
 
-## Batch Processing
-
-| Operation              | Endpoint                           |
-| ---------------------- | ---------------------------------- |
-| Start processing batch | `POST /api/images/process`         |
-| Get batch progress     | `GET /api/images/batches/:batchId` |
-
-Image processing jobs are placed into a BullMQ queue backed by Redis and processed asynchronously by a worker.
-
-The processing endpoint also enforces the appropriate usage limit:
-
-- Guest: 4 images
-- Authenticated user: 10 images
-
-## Temporary Image Sharing
-
-| Operation                  | Endpoint                                          |
-| -------------------------- | ------------------------------------------------- |
-| Create share link          | `POST /api/images/share`                          |
-| Get shared results         | `GET /api/images/share/:token`                    |
-| Get shared processed image | `GET /api/images/share/:token/processed/:imageId` |
-
-# Temporary Image Sharing
-
-Imagify allows users to temporarily share completed image-processing results without requiring the recipient to log in.
-
-## Sharing Flow
+## Storage
 
 ```text
-Process Images
-      ↓
-Processing Completed
-      ↓
-Share Results
-      ↓
-Generate Secure Random Token
-      ↓
-Create Share Record
-      ↓
-Share URL
-      ↓
-Recipient Opens URL
-      ↓
-View Processed Results
+GET    /api/storage/usage
+GET    /api/storage/images
+POST   /api/storage/upload
+DELETE /api/storage/images/:id
 ```
 
-## Share Token
-
-A cryptographically secure random token is generated using Node.js `crypto`:
-
-```js
-crypto.randomBytes(32).toString("hex");
-```
-
-The token provides a high-entropy URL that is difficult to guess.
-
-## Expiration
-
-Each share record receives an expiration time one hour after creation:
-
-```js
-const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
-```
-
-The server checks the expiration on every shared-resource request.
-
-Expired links return:
+## Sharing
 
 ```text
-410 Gone
+GET /api/share/:token
 ```
 
-with an appropriate expiration message.
-
-## Secure Image Access
-
-Cloudinary URLs are not exposed through the public sharing API.
-
-Instead, shared images are requested through an Imagify server endpoint:
+## Subscriptions
 
 ```text
-/api/images/share/:token/processed/:imageId
+GET  /api/subscription/status
+
+POST /api/subscription/checkout
+POST /api/subscription/change-plan
+POST /api/subscription/preview-upgrade
+POST /api/subscription/downgrade
+
+POST /api/subscription/cancel
+POST /api/subscription/restore
+POST /api/subscription/cancel-scheduled-plan
+
+POST /api/subscription/webhook
 ```
 
-The server:
+---
 
-1. Validates the share token.
-2. Checks whether the share link has expired.
-3. Finds the associated processing batch.
-4. Verifies that the requested image belongs to the shared batch.
-5. Fetches the processed image from Cloudinary.
-6. Sends the image through the Imagify server.
+# 📂 Frontend Organization
+
+The frontend is organized into components, pages, hooks, services, and utilities.
+
+### Components
+
+Reusable UI components are grouped by functionality:
 
 ```text
-Browser
-   ↓
-Imagify Share Image Endpoint
-   ↓
-Validate Token
-   ↓
-Check Expiration
-   ↓
-Validate Image Ownership
-   ↓
-Cloudinary
-   ↓
-Imagify Server
-   ↓
-Browser
+components/
+├── auth/
+├── context/
+├── layout/
+├── notifications/
+├── shared/
+├── subscription/
+└── upload/
 ```
 
-This prevents the public share API from exposing direct Cloudinary URLs.
+### Pages
 
-## MongoDB TTL Cleanup
-
-Share records also use a MongoDB TTL index:
-
-```js
-shareSchema.index({expiresAt: 1}, {expireAfterSeconds: 0});
-```
-
-The TTL index automatically removes expired share records from MongoDB.
-
-TTL is used for cleanup, while the server-side `expiresAt` check remains responsible for enforcing access expiration immediately.
-
-# Background Processing
-
-Image processing is handled asynchronously using Redis and BullMQ.
-
-Instead of processing every image during the HTTP request:
+Application-level pages include:
 
 ```text
-HTTP Request
-     ↓
-Process Image
-     ↓
-HTTP Response
+pages/
+├── Home.jsx
+├── Login.jsx
+├── NotificationResults.jsx
+├── Storage.jsx
+├── Subscription.jsx
+├── Upload.jsx
+└── Uploadcopy.jsx
 ```
 
-Imagify uses:
+### Hooks
+
+Custom React logic is separated into hooks:
 
 ```text
-HTTP Request
-     ↓
-Create Processing Batch
-     ↓
-Add Jobs to BullMQ
-     ↓
-Return Batch ID
-     ↓
-Worker Processes Images
-     ↓
-Update Batch Progress
+hooks/
+├── useAuth.js
+└── upload/
+    ├── useImageProcessing.js
+    ├── useImageShare.js
+    └── useImageUpload.js
 ```
 
-This allows the application to process multiple images without keeping the HTTP request open.
+### Services
 
-# Batch Processing
-
-Each processing request creates a `ProcessingBatch` document containing:
-
-- Processing status
-- Image IDs
-- Total image count
-- Completed image count
-- Failed image count
-- Operation
-- Processing options
-
-Example lifecycle:
+API communication is separated into service modules:
 
 ```text
-pending
-   ↓
-processing
-   ↓
-completed
+services/
+├── api.js
+├── auth.service.js
+├── image.service.js
+├── processing.service.js
+├── push.js
+├── share.service.js
+├── storage.service.js
+└── subscription.service.js
 ```
 
-If processing fails, the batch can enter:
+This keeps API logic separate from UI components.
 
-```text
-failed
-```
+---
 
-The frontend periodically requests batch status to display processing progress.
+# 🖥️ Local Development
 
-# Push Notifications
+## Prerequisites
 
-Imagify supports browser push notifications using Web Push.
+Install:
 
-When image processing completes, the backend can send a notification to subscribed browsers.
+- Node.js
+- npm
+- MongoDB / MongoDB Atlas
+- Redis
+- Cloudinary account
+- Google OAuth credentials
+- Stripe account
+- Stripe CLI for local webhook testing
 
-The notification contains information such as:
+---
 
-- Processing completion
-- Number of processed images
-- Navigation URL
-
-The service worker receives the push event and displays the browser notification.
-
-# Progressive Web App
-
-Imagify is configured as a Progressive Web App using `vite-plugin-pwa`.
-
-The PWA provides:
-
-- Web app manifest
-- Installable application experience
-- Service worker
-- Automatic updates
-- Asset precaching
-- Push notification support
-
-The service worker also handles notification clicks and opens the relevant Imagify page.
-
-# Local Setup
-
-## 1. Clone
+## 1. Clone the Repository
 
 ```bash
 git clone https://github.com/Deveshwar-cs/Imagify.git
 cd Imagify
 ```
 
-## 2. Install dependencies
+---
+
+## 2. Install Frontend Dependencies
 
 ```bash
 cd client
 npm install
+```
 
+---
+
+## 3. Install Backend Dependencies
+
+```bash
 cd ../server
 npm install
 ```
 
-## 3. Backend environment
+---
 
-Create:
+## 4. Environment Variables
 
-```text
-server/.env
-```
+Create a `.env` file inside the `server` directory.
 
 Example:
 
 ```env
 PORT=5000
 
-MONGODB_URI=your_mongodb_connection_string
+MONGO_URI=your_mongodb_connection_string
+
+JWT_SECRET=your_jwt_secret
+
+GOOGLE_CLIENT_ID=your_google_client_id
 
 CLOUDINARY_CLOUD_NAME=your_cloudinary_cloud_name
 CLOUDINARY_API_KEY=your_cloudinary_api_key
 CLOUDINARY_API_SECRET=your_cloudinary_api_secret
 
-CLIENT_URL=http://localhost:5173
+REDIS_URL=your_redis_url
 
-GOOGLE_CLIENT_ID=your_google_client_id
+STRIPE_SECRET_KEY=sk_test_your_secret_key
 
-JWT_SECRET=your_long_random_jwt_secret
+STRIPE_STARTER_PRICE_ID=price_your_starter_price_id
+STRIPE_PREMIUM_PRICE_ID=price_your_premium_price_id
+STRIPE_ENTERPRISE_PRICE_ID=price_your_enterprise_price_id
+
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+
+STRIPE_SUCCESS_URL=http://localhost:5173/success
+STRIPE_CANCEL_URL=http://localhost:5173/cancel
 ```
 
-If Redis is configured locally:
+Do not commit `.env` files or secret credentials to GitHub.
 
-```env
-REDIS_HOST=127.0.0.1
-REDIS_PORT=6379
+---
+
+# ▶️ Running the Application
+
+### Start Backend
+
+```bash
+cd server
+npm run dev
 ```
-
-Never commit `.env` files or API secrets.
-
-## 4. Frontend environment
-
-Create:
-
-```text
-client/.env
-```
-
-```env
-VITE_API_URL=http://localhost:5000/api
-VITE_GOOGLE_CLIENT_ID=your_google_client_id
-```
-
-Never commit `.env` files or API secrets.
-
-## 5. Google OAuth Setup
-
-Imagify uses Google OAuth / Google Identity Services for authentication.
-
-### Create Google Cloud Project
-
-Open the Google Cloud Console and create or select a project for Imagify.
-
-### Configure OAuth Consent Screen
-
-Configure the OAuth consent screen with:
-
-- Application name
-- Support email
-- Developer contact information
-
-For development, add your Google account as a test user if required.
-
-### Create OAuth Client
-
-Create an OAuth 2.0 Client ID with:
-
-```text
-Application type:
-Web application
-```
-
-Add the local development origin:
-
-```text
-http://localhost:5173
-```
-
-For the Google Identity Services credential-button flow used by Imagify, the frontend uses the Google Client ID and sends the returned credential to the backend for verification.
-
-### Environment Variables
-
-Use the same Google Client ID in both environments:
 
 Backend:
 
-```env
-GOOGLE_CLIENT_ID=your_google_client_id
-```
-
-Frontend:
-
-```env
-VITE_GOOGLE_CLIENT_ID=your_google_client_id
-```
-
-The Google Client ID can be used by the frontend. Do not expose private API keys, JWT secrets, Cloudinary secrets, or other backend secrets in frontend environment variables.
-
-### Authentication Security
-
-The backend verifies the Google ID token using:
-
 ```text
-google-auth-library
+http://localhost:5000
 ```
 
-After successful verification, Imagify creates or finds the user and creates a JWT stored in an HTTP-only cookie.
+### Start Frontend
 
-# Task 2 — Local Domain & HTTPS
-
-Task 2 provides a production-like HTTPS environment locally.
-
-## 1. Configure local domain
-
-Edit:
-
-```bash
-sudo nano /etc/hosts
-```
-
-Add:
-
-```text
-127.0.0.1 imagify.com
-```
-
-Verify:
-
-```bash
-ping -c 1 imagify.com
-```
-
-## 2. Install Nginx
-
-```bash
-brew install nginx
-```
-
-Create the server configuration directory:
-
-```bash
-mkdir -p /opt/homebrew/etc/nginx/servers
-```
-
-In:
-
-```text
-/opt/homebrew/etc/nginx/nginx.conf
-```
-
-make sure the `http` block contains:
-
-```nginx
-include servers/*;
-```
-
-## 3. Install mkcert
-
-```bash
-brew install mkcert
-mkcert -install
-```
-
-## 4. Generate local SSL certificate
-
-From the project root:
-
-```bash
-mkdir -p nginx/ssl
-
-mkcert \
-  -key-file nginx/ssl/imagify-key.pem \
-  -cert-file nginx/ssl/imagify.pem \
-  imagify.com localhost 127.0.0.1
-```
-
-Keep:
-
-```text
-nginx/ssl/
-```
-
-in `.gitignore`.
-
-## 5. Configure Nginx
-
-Create:
-
-```text
-/opt/homebrew/etc/nginx/servers/imagify.conf
-```
-
-Add:
-
-```nginx
-server {
-    listen 80;
-    server_name imagify.com;
-
-    return 301 https://imagify.com$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name imagify.com;
-
-    ssl_certificate /Users/deveshwarthakur/Desktop/Office/Imagify/nginx/ssl/imagify.pem;
-    ssl_certificate_key /Users/deveshwarthakur/Desktop/Office/Imagify/nginx/ssl/imagify-key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:5173;
-
-        proxy_http_version 1.1;
-
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
-
-> Update the certificate paths if the project is located somewhere else.
-
-## 6. Test and start Nginx
-
-```bash
-nginx -t
-```
-
-If successful:
-
-```bash
-brew services start nginx
-```
-
-Start the React application:
+Open another terminal:
 
 ```bash
 cd client
 npm run dev
 ```
 
-Now open:
+Frontend:
 
 ```text
-https://imagify.com
+http://localhost:5173
 ```
 
-HTTP requests to:
+---
+
+# 💳 Stripe Local Testing
+
+Use Stripe Test Mode while developing.
+
+Create recurring products for:
 
 ```text
-http://imagify.com
+Starter
+Premium
+Enterprise
 ```
 
-are redirected to HTTPS.
+Copy their Price IDs into the backend `.env`.
 
-## Task 2 Architecture
+For local webhook testing:
+
+```bash
+stripe login
+```
+
+Then:
+
+```bash
+stripe listen --forward-to localhost:5000/api/subscription/webhook
+```
+
+Stripe CLI will provide a webhook signing secret.
+
+Add that value to:
+
+```env
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+### Stripe Test Card
+
+Use:
+
+```text
+4242 4242 4242 4242
+```
+
+Use:
+
+- Any future expiration date
+- Any valid test CVC
+- Any valid test ZIP/postal code
+
+---
+
+# 🌐 Local HTTPS Setup
+
+Imagify can be run locally using HTTPS with:
+
+- Nginx
+- mkcert
+- Local domain configuration
+
+Example local domain:
+
+```text
+imagify.com
+```
+
+The hosts file can map the domain to:
+
+```text
+127.0.0.1 imagify.com
+```
+
+Nginx handles the HTTPS connection and proxies requests to the local Vite development server.
+
+Example structure:
 
 ```text
 Browser
    ↓
 https://imagify.com
    ↓
-/etc/hosts
+Nginx
    ↓
-127.0.0.1
+Vite
    ↓
-Nginx :443
-   ↓
-SSL / HTTPS
-   ↓
-Reverse Proxy
-   ↓
-React/Vite :5173
+React Application
 ```
 
-# Technical Decisions
-
-## Sharp
-
-Used for:
-
-- Resizing
-- Compression
-- Sharpening
-- Upscaling
-- Image metadata extraction
-
-## Multer
-
-Uses `memoryStorage()` for temporary upload handling and validates:
-
-- File type
-- File size
-
-## Cloudinary
-
-Stores original and processed images.
-
-MongoDB stores image metadata and references to Cloudinary resources.
-
-## MongoDB
-
-Stores:
-
-- Image metadata
-- Processed-image metadata
-- Processing batches
-- Share records
-- Push subscriptions
-- User accounts
-- Guest usage records
-
-## Redis
-
-Redis is used as the backing data store for the BullMQ job queue.
-
-## BullMQ
-
-BullMQ manages asynchronous image-processing jobs.
-
-Each image can be processed as an independent background job while the frontend tracks the overall batch progress.
-
-## Google Authentication
-
-Google Identity Services is used on the frontend to authenticate users.
-
-The backend uses `google-auth-library` to verify the Google ID token.
-
-After verification, the backend creates or finds the corresponding MongoDB user.
-
-## JWT Authentication
-
-JWT is used to maintain the authenticated session.
-
-The JWT is stored in an HTTP-only cookie:
+SSL certificates are stored in:
 
 ```text
-authToken
+nginx/ssl/
 ```
 
-The authentication middleware verifies the token and attaches the authenticated user to:
+---
 
-```js
-req.user;
-```
+# 🧩 Chrome Extension Installation
 
-## Usage Tracking
+To install the extension locally:
 
-Guest usage is stored separately using a persistent guest identifier:
+### 1. Open Chrome Extensions
 
 ```text
-Guest → guestId → GuestUsage
+chrome://extensions
 ```
 
-Authenticated usage is stored on the user account:
+### 2. Enable Developer Mode
+
+Turn on **Developer mode**.
+
+### 3. Load Extension
+
+Click:
 
 ```text
-Google User → User → usageCount
+Load unpacked
 ```
 
-The processing endpoint checks usage before adding jobs to BullMQ.
-
-## Image Service
-
-`server/src/services/image.service.js` contains reusable temporary-file and Cloudinary helpers.
-
-Temporary processing files are removed after each operation.
-
-## React State
-
-React local state and props are used instead of Redux because the current application does not require complex global state.
-
-## React Router
-
-React Router is used to provide separate application routes, including temporary shared-result URLs:
+Select:
 
 ```text
-/
-/share/:token
+Imagify/chrome-extension
 ```
 
-## Nginx + mkcert
-
-Nginx provides:
-
-- Reverse proxying
-- HTTP → HTTPS redirection
-- Local HTTPS access
-
-mkcert provides locally trusted development certificates.
-
-# Deployment
-
-Current deployment architecture:
+The selected folder must contain:
 
 ```text
-Frontend → Vercel
-Backend  → Render
-Database → MongoDB Atlas
-Images   → Cloudinary
+manifest.json
 ```
 
-Production environment variables must be configured on the respective platforms.
+### 4. Pin the Extension
 
-For production sharing, `CLIENT_URL` should point to the deployed frontend.
+Pin **Imagify Screenshot** from the Chrome extensions menu.
 
-For Google Login in production, the deployed frontend origin must also be configured in the Google OAuth client settings.
+---
 
-Production authentication cookies should be configured appropriately for the deployed frontend/backend domains, including secure cookie settings.
+# 🔧 Chrome Extension Development
 
-# Current Status
+When making changes:
 
-## Completed
+```text
+Edit Code
+   ↓
+Save
+   ↓
+Reload Extension
+   ↓
+Refresh Webpage
+   ↓
+Test Screenshot
+```
 
-- Image upload and validation
-- Multiple image upload
-- Resize
-- Compression
-- Quality enhancement
-- 2× / 3× upscaling
-- Original/processed preview
-- Metadata display
-- Download
-- Cloudinary storage
-- MongoDB metadata
-- Redis
-- BullMQ background processing
-- Batch processing
-- Batch progress tracking
-- Push notifications
-- Progressive Web App
-- Temporary image sharing
-- Secure random share tokens
-- One-hour share expiration
-- Server-side expiration validation
-- Secure processed-image proxy
-- MongoDB TTL cleanup for expired share records
-- Responsive UI
-- Production deployment
-- Local HTTPS environment
-- Guest usage limit
-- Persistent guest usage tracking
-- Google Login
-- Google ID token verification
-- JWT authentication
-- HTTP-only authentication cookie
-- Authenticated user management
-- Authenticated usage limit
-- Backend usage-limit enforcement
-- Authentication state endpoint
-- Logout
+If changing:
 
-## Planned
+```text
+manifest.json
+```
 
-- Stripe subscriptions
-- Public image API
-- Chrome screenshot extension
+the extension should be reloaded from:
 
-# Repository
+```text
+chrome://extensions
+```
 
-GitHub: https://github.com/Deveshwar-cs/Imagify
+If changing the content script, refresh the webpage before testing.
 
-# Author
+---
 
-Deveshwar
+# 🐛 Debugging
+
+### Extension Popup
+
+Right-click the extension popup and select:
+
+```text
+Inspect
+```
+
+### Background Service Worker
+
+Open:
+
+```text
+chrome://extensions
+```
+
+Find Imagify Screenshot and inspect the service worker.
+
+### Content Script
+
+Open the webpage's DevTools:
+
+```text
+Right Click → Inspect → Console
+```
+
+Content-script logs will appear there.
+
+---
+
+# 🔒 Security Considerations
+
+Imagify uses several security mechanisms:
+
+- HTTP-only cookies for authentication
+- JWT-based authentication
+- Google OAuth credential verification
+- Protected backend routes
+- Guest identification
+- File type validation
+- File size validation
+- Temporary share tokens
+- Expiring share links
+- Stripe webhook verification
+- Environment variables for secrets
+
+Uploaded files are validated to allow supported image formats such as:
+
+```text
+image/jpeg
+image/png
+image/webp
+```
+
+---
+
+# ☁️ Cloudinary Storage
+
+Cloudinary is used for persistent image storage.
+
+The application separates original and processed images into different

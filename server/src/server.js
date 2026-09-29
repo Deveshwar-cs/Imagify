@@ -21,6 +21,7 @@ app.use(
       "http://localhost:4173",
       "https://imagify.com",
       "https://imagify-taupe-iota.vercel.app",
+      "https://imagify-git-main-logic-lords.vercel.app",
     ],
     credentials: true,
   }),
