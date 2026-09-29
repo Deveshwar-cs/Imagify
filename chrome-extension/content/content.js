@@ -4,6 +4,8 @@ if (!window.__imagifyContentLoaded) {
 
   const hiddenElements = new Map(); // element -> { value, priority }
   let instantScrollStyle = null;
+  let selectionOverlay = null;
+  let selectionBox = null;
 
   // =========================================
   // HELPERS
@@ -22,6 +24,99 @@ if (!window.__imagifyContentLoaded) {
       document.documentElement?.scrollWidth || 0,
       document.body?.scrollWidth || 0,
     );
+  }
+
+  function startSelection() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+
+      overlay.style.position = "fixed";
+      overlay.style.top = "0";
+      overlay.style.left = "0";
+      overlay.style.width = "100vw";
+      overlay.style.height = "100vh";
+      overlay.style.zIndex = "2147483647";
+      overlay.style.cursor = "crosshair";
+
+      document.body.appendChild(overlay);
+
+      selectionOverlay = overlay;
+
+      let startX = 0;
+      let startY = 0;
+      let isSelecting = false;
+
+      overlay.addEventListener("mousedown", (event) => {
+        isSelecting = true;
+
+        startX = event.clientX;
+        startY = event.clientY;
+
+        selectionBox = document.createElement("div");
+
+        selectionBox.style.position = "fixed";
+        selectionBox.style.border = "2px solid red";
+        selectionBox.style.background = "rgba(255, 255, 255, 0.15)";
+        selectionBox.style.pointerEvents = "none";
+
+        document.body.appendChild(selectionBox);
+      });
+
+      overlay.addEventListener("mousemove", (event) => {
+        if (!isSelecting) {
+          return;
+        }
+
+        const currentX = event.clientX;
+        const currentY = event.clientY;
+
+        const left = Math.min(startX, currentX);
+        const top = Math.min(startY, currentY);
+
+        // Here we use Math.abs to get positive value
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+
+        selectionBox.style.left = `${left}px`;
+        selectionBox.style.top = `${top}px`;
+        selectionBox.style.width = `${width}px`;
+        selectionBox.style.height = `${height}px`;
+      });
+
+      overlay.addEventListener("mouseup", (event) => {
+        if (!isSelecting) {
+          return;
+        }
+
+        isSelecting = false;
+
+        const endX = event.clientX;
+        const endY = event.clientY;
+
+        const left = Math.min(startX, endX);
+        const top = Math.min(startY, endY);
+
+        const width = Math.abs(endX - startX);
+        const height = Math.abs(endY - startY);
+
+        cleanupSelection();
+
+        resolve({
+          x: left,
+          y: top,
+          width,
+          height,
+        });
+      });
+    });
+  }
+
+  function cleanupSelection() {
+    selectionOverlay?.remove();
+    selectionBox?.remove();
+
+    selectionOverlay = null;
+    selectionBox = null;
   }
 
   // Sites with `scroll-behavior: smooth` animate window.scrollTo, which makes
@@ -183,13 +278,20 @@ if (!window.__imagifyContentLoaded) {
 
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "GET_PAGE_INFO") {
-      sendResponse({success: true, pageInfo: getPageInfo()});
+      sendResponse({
+        success: true,
+        pageInfo: getPageInfo(),
+      });
+
       return true;
     }
 
     if (message.type === "SCROLL_TO") {
       scrollToPosition(message.x, message.y).then((position) => {
-        sendResponse({success: true, position});
+        sendResponse({
+          success: true,
+          position,
+        });
       });
 
       return true;
@@ -197,7 +299,12 @@ if (!window.__imagifyContentLoaded) {
 
     if (message.type === "HIDE_FIXED") {
       const count = hideFixedElements();
-      sendResponse({success: true, count});
+
+      sendResponse({
+        success: true,
+        count,
+      });
+
       return true;
     }
 
@@ -212,8 +319,22 @@ if (!window.__imagifyContentLoaded) {
 
       disableInstantScroll();
 
-      sendResponse({success: true});
+      sendResponse({
+        success: true,
+      });
+
       return true;
+    }
+
+    if (message.type === "START_SELECTION") {
+      startSelection().then((selection) => {
+        chrome.runtime.sendMessage({
+          type: "SELECTION_COMPLETE",
+          selection,
+        });
+      });
+
+      return;
     }
 
     if (message.type === "TEST_MESSAGE") {

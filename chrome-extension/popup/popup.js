@@ -12,6 +12,7 @@ const shareSection = document.getElementById("shareSection");
 const shareUrl = document.getElementById("shareUrl");
 const copyUrlButton = document.getElementById("copyUrlButton");
 const openUrlButton = document.getElementById("openUrlButton");
+const captureSelectedButton = document.getElementById("captureSelected");
 
 let capturedScreenshot = null;
 
@@ -24,6 +25,30 @@ const MAX_CAPTURES = 60;
 // Browser canvas limits (Chrome)
 const MAX_CANVAS_DIMENSION = 32767;
 const MAX_CANVAS_AREA = 268435456;
+
+function showScreenshot(screenshot) {
+  capturedScreenshot = screenshot;
+
+  screenshotPreview.src = screenshot;
+
+  screenshotPreview.classList.remove("hidden");
+
+  uploadSection.classList.remove("hidden");
+
+  shareSection.classList.add("hidden");
+}
+
+const loadSelectedScreenshot = async () => {
+  const result = await chrome.storage.session.get("selectedScreenshot");
+
+  if (!result.selectedScreenshot) {
+    return;
+  }
+
+  showScreenshot(result.selectedScreenshot);
+
+  await chrome.storage.session.remove("selectedScreenshot");
+};
 
 // =========================================
 // CAPTURE VIEW
@@ -207,6 +232,47 @@ captureFullPageButton.addEventListener("click", async () => {
 
     status.textContent = error.message || "Failed to capture full page";
   } finally {
+    setButtonsDisabled(false);
+  }
+});
+
+// =========================================
+// CAPTURE selected portion
+// =========================================
+
+captureSelectedButton.addEventListener("click", async () => {
+  try {
+    setButtonsDisabled(true);
+
+    status.textContent = "Select the area you want to capture...";
+
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+
+    if (!tab?.id) {
+      throw new Error("Active tab not found");
+    }
+
+    await chrome.scripting.executeScript({
+      target: {
+        tabId: tab.id,
+      },
+      files: ["content/content.js"],
+    });
+
+    await chrome.runtime.sendMessage({
+      type: "START_SELECTED_CAPTURE",
+      tabId: tab.id,
+    });
+    window.close();
+  } catch (error) {
+    console.log(error);
+    console.error("Selected capture error:", error);
+
+    status.textContent = error.message || "Failed to start selection";
+
     setButtonsDisabled(false);
   }
 });
@@ -449,3 +515,5 @@ openUrlButton.addEventListener("click", () => {
 
   chrome.tabs.create({url: shareUrl.value});
 });
+
+loadSelectedScreenshot();

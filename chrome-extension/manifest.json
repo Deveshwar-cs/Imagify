@@ -4,8 +4,7 @@
   "version": "1.0.0",
   "description": "Capture and share screenshots with Imagify",
 
-  "permissions": ["activeTab", "tabs", "scripting", "storage"],
-
+  "permissions": ["activeTab", "tabs", "scripting", "storage", "debugger"],
   "host_permissions": ["<all_urls>"],
 
   "action": {
