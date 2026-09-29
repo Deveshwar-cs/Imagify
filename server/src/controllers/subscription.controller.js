@@ -4,7 +4,6 @@ import {SUBSCRIPTION_PLANS} from "../config/subscription.plan.js";
 export const createCheckoutSession = async (req, res) => {
   try {
     const {plan} = req.body;
-
     if (!plan) {
       return res.status(400).json({
         success: false,
@@ -394,6 +393,8 @@ export const cancelSubscription = async (req, res) => {
 
     const subscriptionId = user.subscription?.stripeSubscriptionId;
 
+    console.log("Subscription ID:", subscriptionId);
+
     if (!subscriptionId) {
       return res.status(400).json({
         success: false,
@@ -405,7 +406,9 @@ export const cancelSubscription = async (req, res) => {
     // Get Stripe subscription
     // -----------------------------------------
 
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    let subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+    console.log("Subscription status:", subscription.status);
 
     if (subscription.status !== "active") {
       return res.status(400).json({
@@ -415,7 +418,22 @@ export const cancelSubscription = async (req, res) => {
     }
 
     // -----------------------------------------
-    // Get subscription schedule
+    // Check if already scheduled for cancellation
+    // -----------------------------------------
+
+    if (subscription.cancel_at_period_end) {
+      return res.status(200).json({
+        success: true,
+        message: "Subscription is already scheduled for cancellation",
+
+        cancelAtPeriodEnd: true,
+
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      });
+    }
+
+    // -----------------------------------------
+    // Check if subscription is managed by a schedule
     // -----------------------------------------
 
     const scheduleId =
@@ -423,84 +441,50 @@ export const cancelSubscription = async (req, res) => {
         ? subscription.schedule
         : subscription.schedule?.id;
 
-    if (!scheduleId) {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription schedule not found",
-      });
-    }
-
-    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
-
-    console.log(
-      "Current subscription schedule:",
-      JSON.stringify(schedule, null, 2),
-    );
+    console.log("Subscription schedule:", scheduleId);
 
     // -----------------------------------------
-    // Check schedule status
+    // Release subscription schedule
     // -----------------------------------------
 
-    if (schedule.status !== "active" && schedule.status !== "not_started") {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription schedule cannot be canceled",
-      });
+    if (scheduleId) {
+      console.log("Releasing subscription schedule:", scheduleId);
+
+      await stripe.subscriptionSchedules.release(scheduleId);
+
+      console.log("Subscription schedule released");
+
+      // Retrieve subscription again because the
+      // Stripe subscription object has changed.
+      subscription = await stripe.subscriptions.retrieve(subscriptionId);
     }
 
     // -----------------------------------------
-    // Check if already scheduled for cancellation
+    // Cancel subscription at period end
     // -----------------------------------------
 
-    if (schedule.end_behavior === "cancel") {
-      console.log("Subscription is already scheduled for cancellation");
-
-      // Sync MongoDB with Stripe
-      user.subscription.cancelAtPeriodEnd = true;
-
-      // Cancellation removes any pending downgrade
-      user.subscription.scheduledPlan = "none";
-      user.subscription.scheduledPlanDate = null;
-
-      if (schedule.current_phase?.end_date) {
-        user.subscription.currentPeriodEnd = new Date(
-          schedule.current_phase.end_date * 1000,
-        );
-      }
-
-      await user.save();
-
-      return res.status(200).json({
-        success: true,
-        message: "Subscription is already scheduled for cancellation",
-        cancelAtPeriodEnd: true,
-        currentPeriodEnd: user.subscription.currentPeriodEnd,
-        schedule: {
-          id: schedule.id,
-          status: schedule.status,
-          endBehavior: schedule.end_behavior,
-        },
-      });
-    }
-    // -----------------------------------------
-    // Set schedule to cancel at period end
-    // -----------------------------------------
-
-    const updatedSchedule = await stripe.subscriptionSchedules.update(
-      schedule.id,
+    const updatedSubscription = await stripe.subscriptions.update(
+      subscriptionId,
       {
-        end_behavior: "cancel",
+        cancel_at_period_end: true,
       },
     );
 
+    console.log(
+      "Subscription cancellation scheduled:",
+      updatedSubscription.cancel_at_period_end,
+    );
+
     // -----------------------------------------
-    // Update local database
+    // Update MongoDB
     // -----------------------------------------
+
     user.subscription.cancelAtPeriodEnd = true;
 
-    // A subscription cancellation should also
-    // remove any pending downgrade.
+    // Once the subscription is being canceled,
+    // there should be no scheduled plan change.
     user.subscription.scheduledPlan = "none";
+
     user.subscription.scheduledPlanDate = null;
 
     await user.save();
@@ -515,13 +499,9 @@ export const cancelSubscription = async (req, res) => {
       message:
         "Subscription will be canceled at the end of the current billing period",
 
-      schedule: {
-        id: updatedSchedule.id,
-        status: updatedSchedule.status,
-        endBehavior: updatedSchedule.end_behavior,
-      },
+      cancelAtPeriodEnd: updatedSubscription.cancel_at_period_end,
 
-      cancelAtPeriodEnd: true,
+      currentPeriodEnd: new Date(updatedSubscription.current_period_end * 1000),
     });
   } catch (error) {
     console.error("Cancel subscription error:", error);
@@ -538,9 +518,9 @@ export const scheduleDowngrade = async (req, res) => {
     const {plan} = req.body;
 
     if (!plan) {
-      return res.status(400).json({
+      return res.status(404).json({
         success: false,
-        message: "Please select a subscription plan",
+        messsage: "Please select a subscription plan",
       });
     }
 
@@ -554,8 +534,7 @@ export const scheduleDowngrade = async (req, res) => {
     }
 
     const user = req.user;
-
-    const currentPlan = user.subscription?.plan;
+    const currentPlan = user.subscription.plan;
 
     if (!currentPlan) {
       return res.status(400).json({
@@ -580,24 +559,29 @@ export const scheduleDowngrade = async (req, res) => {
     const currentLevel = planLevels[currentPlan];
     const newLevel = planLevels[plan];
 
+    if (!currentLevel || !newLevel) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid subscription plan configuration",
+      });
+    }
+
     if (newLevel >= currentLevel) {
       return res.status(400).json({
         success: false,
         message: "This endpoint is only for downgrades",
       });
     }
-
     const subscriptionId = user.subscription?.stripeSubscriptionId;
 
     if (!subscriptionId) {
       return res.status(400).json({
         success: false,
-        message: "No active subscription found",
+        message: "No active subscription found!",
       });
     }
-
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-
+    // Checking subscription status
     if (subscription.status !== "active") {
       return res.status(400).json({
         success: false,
@@ -605,44 +589,9 @@ export const scheduleDowngrade = async (req, res) => {
       });
     }
 
-    /*
-     * The subscription is already attached to a schedule.
-     * We must update that existing schedule instead of
-     * creating a new one.
-     */
-    const scheduleId =
-      typeof subscription.schedule === "string"
-        ? subscription.schedule
-        : subscription.schedule?.id;
-
-    if (!scheduleId) {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription schedule not found",
-      });
-    }
-
-    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
-
-    console.log("Existing Stripe schedule:", JSON.stringify(schedule, null, 2));
-
-    if (schedule.status !== "active" && schedule.status !== "not_started") {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription schedule cannot be modified",
-      });
-    }
-
-    const currentPhase = schedule.current_phase;
-
-    if (!currentPhase) {
-      return res.status(400).json({
-        success: false,
-        message: "Current subscription phase not found",
-      });
-    }
-
     const currentItem = subscription.items.data[0];
+    console.log("Current item:--");
+    console.log(currentItem);
 
     if (!currentItem) {
       return res.status(400).json({
@@ -651,34 +600,47 @@ export const scheduleDowngrade = async (req, res) => {
       });
     }
 
-    /*
-     * IMPORTANT:
-     *
-     * Stripe uses:
-     * currentPhase.start_date
-     * currentPhase.end_date
-     *
-     * not:
-     * currentPhase.start
-     * currentPhase.end
-     */
+    const scheduleId =
+      typeof subscription.schedule === "string"
+        ? subscription.schedule
+        : subscription.schedule?.id;
+    let schedule;
+    if (scheduleId) {
+      schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
 
-    const currentPhaseStart = currentPhase.start_date;
+      // console.log(
+      //   "Existing Stripe schedule:",
+      //   JSON.stringify(schedule, null, 2),
+      // );
 
-    const currentPhaseEnd = currentPhase.end_date;
+      if (schedule.status !== "active" && schedule.status !== "not_started") {
+        return res.status(400).json({
+          success: false,
+          message: "Subscription schedule cannot be modified",
+        });
+      }
 
-    if (!currentPhaseEnd) {
-      return res.status(400).json({
-        success: false,
-        message: "Current subscription phase does not have an end date",
-      });
-    }
+      const currentPhase = schedule.current_phase;
 
-    const updatedSchedule = await stripe.subscriptionSchedules.update(
-      schedule.id,
-      {
+      if (!currentPhase) {
+        return res.status(400).json({
+          success: false,
+          message: "current subscription phase not found",
+        });
+      }
+
+      const currentPhaseStart = currentPhase.start_date;
+      const currentPhaseEnd = currentPhase.end_date;
+
+      if (!currentPhaseEnd) {
+        return res.status(400).json({
+          success: false,
+          message: "Current subscription phase does not have an end date",
+        });
+      }
+
+      schedule = await stripe.subscriptionSchedules.update(scheduleId, {
         end_behavior: "release",
-
         phases: [
           {
             start_date: currentPhaseStart,
@@ -694,7 +656,6 @@ export const scheduleDowngrade = async (req, res) => {
 
           {
             start_date: currentPhaseEnd,
-
             items: [
               {
                 price: selectedPlan.priceId,
@@ -703,23 +664,77 @@ export const scheduleDowngrade = async (req, res) => {
             ],
           },
         ],
-      },
-    );
+      });
+    } else {
+      schedule = await stripe.subscriptionSchedules.create({
+        from_subscription: subscriptionId,
+      });
+      // console.log(
+      //   "Created Stripe schedule:",
+      //   JSON.stringify(schedule, null, 2),
+      // );
+
+      const currentPhase = schedule.current_phase;
+
+      if (!currentPhase) {
+        return res.status(400).json({
+          success: false,
+          message: "Current subscription phase not found",
+        });
+      }
+
+      const currentPhaseStart = currentPhase.start_date;
+      const currentPhaseEnd = currentPhase.end_date;
+
+      if (!currentPhaseEnd) {
+        return res.status(400).json({
+          success: false,
+          message: "Current subscription phase does not have an end date",
+        });
+      }
+
+      schedule = await stripe.subscriptionSchedules.update(schedule.id, {
+        end_behavior: "release",
+        phases: [
+          {
+            start_date: currentPhaseStart,
+            end_date: currentPhaseEnd,
+            items: [
+              {
+                price: currentItem.price.id,
+                quantity: currentItem.quantity || 1,
+              },
+            ],
+          },
+
+          {
+            start_date: currentPhaseEnd,
+            items: [
+              {
+                price: selectedPlan.priceId,
+                quantity: 1,
+              },
+            ],
+          },
+        ],
+      });
+    }
 
     user.subscription.scheduledPlan = plan;
 
-    user.subscription.scheduledPlanDate = new Date(currentPhaseEnd * 1000);
+    user.subscription.scheduledPlanDate = new Date(
+      schedule.phases[1].start_date * 1000,
+    );
 
     await user.save();
-
     return res.status(200).json({
       success: true,
 
       message: `Your subscription will change to ${selectedPlan.name} at the end of the current billing period.`,
 
       schedule: {
-        id: updatedSchedule.id,
-        status: updatedSchedule.status,
+        id: schedule.id,
+        status: schedule.status,
       },
 
       scheduledPlan: plan,
@@ -749,6 +764,7 @@ export const cancelScheduledPlan = async (req, res) => {
       });
     }
 
+    // Get Stripe subscription
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
 
     if (subscription.status !== "active") {
@@ -758,10 +774,7 @@ export const cancelScheduledPlan = async (req, res) => {
       });
     }
 
-    // -----------------------------------------
-    // Get existing Stripe subscription schedule
-    // -----------------------------------------
-
+    // Get Stripe subscription schedule
     const scheduleId =
       typeof subscription.schedule === "string"
         ? subscription.schedule
@@ -774,118 +787,23 @@ export const cancelScheduledPlan = async (req, res) => {
       });
     }
 
-    const schedule = await stripe.subscriptionSchedules.retrieve(scheduleId);
+    // Release the subscription from the schedule
+    const releasedSchedule =
+      await stripe.subscriptionSchedules.release(scheduleId);
 
-    console.log(
-      "Existing subscription schedule:",
-      JSON.stringify(schedule, null, 2),
-    );
+    console.log("Subscription schedule released:", releasedSchedule.id);
 
-    if (schedule.status !== "active" && schedule.status !== "not_started") {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription schedule cannot be modified",
-      });
-    }
-
-    // -----------------------------------------
-    // Get current phase
-    // -----------------------------------------
-
-    const currentPhase = schedule.current_phase;
-
-    if (!currentPhase) {
-      return res.status(400).json({
-        success: false,
-        message: "Current subscription phase not found",
-      });
-    }
-
-    const currentPhaseStart = currentPhase.start_date;
-
-    const currentPhaseEnd = currentPhase.end_date;
-
-    if (!currentPhaseEnd) {
-      return res.status(400).json({
-        success: false,
-        message: "Current subscription phase does not have an end date",
-      });
-    }
-
-    // -----------------------------------------
-    // Get current subscription item
-    // -----------------------------------------
-
-    const currentItem = subscription.items.data[0];
-
-    if (!currentItem) {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription item not found",
-      });
-    }
-
-    // -----------------------------------------
-    // Remove future scheduled phase
-    //
-    // Keep only the current phase.
-    // At the end of the current phase Stripe
-    // releases the subscription from the schedule.
-    //
-    // This means:
-    //
-    // Premium
-    //     |
-    //     | current phase
-    //     |
-    //     ↓
-    // Premium continues
-    //
-    // No downgrade happens.
-    // -----------------------------------------
-
-    const updatedSchedule = await stripe.subscriptionSchedules.update(
-      schedule.id,
-      {
-        end_behavior: "release",
-
-        phases: [
-          {
-            start_date: currentPhaseStart,
-            end_date: currentPhaseEnd,
-
-            items: [
-              {
-                price: currentItem.price.id,
-                quantity: currentItem.quantity || 1,
-              },
-            ],
-          },
-        ],
-      },
-    );
-
-    // -----------------------------------------
     // Clear scheduled plan from database
-    // -----------------------------------------
-
     user.subscription.scheduledPlan = "none";
     user.subscription.scheduledPlanDate = null;
 
     await user.save();
 
-    console.log("Scheduled downgrade cancelled successfully");
+    console.log("Scheduled plan cancelled successfully");
 
     return res.status(200).json({
       success: true,
       message: "Scheduled plan change has been canceled",
-
-      schedule: {
-        id: updatedSchedule.id,
-        status: updatedSchedule.status,
-        endBehavior: updatedSchedule.end_behavior,
-      },
-
       scheduledPlan: "none",
       scheduledPlanDate: null,
     });
@@ -895,6 +813,104 @@ export const cancelScheduledPlan = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to cancel scheduled plan change",
+    });
+  }
+};
+
+export const previewSubscriptionUpgrade = async (req, res) => {
+  try {
+    const {plan} = req.body;
+    if (!plan) {
+      return res.status(404).json({
+        success: false,
+        message: "Please select subscription plan",
+      });
+    }
+
+    const selectedPlan = SUBSCRIPTION_PLANS[plan];
+
+    if (!selectedPlan) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid subscription plan",
+      });
+    }
+
+    const user = req.user;
+
+    const currentPlan = user.subscription?.plan;
+
+    if (!currentPlan) {
+      return res.status(400).json({
+        success: false,
+        message: "No current subscription plan found",
+      });
+    }
+
+    // Make sure this endpoint is only used for upgrades
+    const planLevels = {starter: 1, premium: 2, enterprise: 3};
+    const currentLevel = planLevels[currentPlan];
+    const newLevel = planLevels[plan];
+    if (newLevel <= currentLevel) {
+      return res
+        .status(400)
+        .json({success: false, message: "This plan is not an upgrade"});
+    }
+    const subscriptionId = user.subscription?.stripeSubscriptionId;
+    if (!subscriptionId) {
+      return res
+        .status(400)
+        .json({success: false, message: "No active subscription found"});
+    }
+    // Get current Stripe subscription
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    if (subscription.status !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Only active subscriptions can be upgraded",
+      });
+    }
+    const subscriptionItem = subscription.items.data[0];
+    if (!subscriptionItem) {
+      return res
+        .status(400)
+        .json({success: false, message: "Subscription item not found"});
+    }
+
+    const invoice = await stripe.invoices.createPreview({
+      customer: subscription.customer,
+      subscription: subscriptionId,
+      subscription_details: {
+        items: [
+          {
+            id: subscriptionItem.id,
+            price: selectedPlan.priceId,
+          },
+        ],
+        proration_behavior: "always_invoice",
+      },
+    });
+
+    // Stripe amounts are represented in the smallest currency unit.
+    const amountDue = invoice.amount_due;
+    const currency = invoice.currency;
+    return res.status(200).json({
+      success: true,
+      preview: {
+        plan,
+        currentPlan,
+        amountDue,
+        currency,
+        // Convenient value for displaying to the user.
+        amountDueFormatted: `${(amountDue / 100).toFixed(2)} ${currency.toUpperCase()}`,
+        invoiceId: invoice.id,
+      },
+    });
+  } catch (error) {
+    console.error("Preview subscription upgrade error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to preview subscription upgrade",
     });
   }
 };

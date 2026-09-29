@@ -6,10 +6,14 @@ import {
   scheduleDowngrade,
   cancelSubscription,
   restoreSubscription,
+  cancelScheduledPlan,
+  previewSubscriptionUpgrade,
 } from "../../services/subscription.service";
 
 const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   const [subscription, setSubscription] = useState(null);
+
+  const [cancelingScheduledPlan, setCancelingScheduledPlan] = useState(false);
 
   const [restoring, setRestoring] = useState(false);
 
@@ -20,6 +24,8 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   const [downgradingPlan, setDowngradingPlan] = useState(null);
 
   const [loading, setLoading] = useState(true);
+  const [upgradePreview, setUpgradePreview] = useState(null);
+  const [previewingPlan, setPreviewingPlan] = useState(null);
 
   const [error, setError] = useState("");
 
@@ -32,6 +38,7 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
       const data = await getSubscriptionStatus();
 
       setSubscription(data.subscription);
+
       onSubscriptionLoaded?.(data.subscription);
 
       return data.subscription;
@@ -77,51 +84,30 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   // -----------------------------------------
 
   const handleChangePlan = async (plan) => {
-    const currentPlan = subscription?.planName || "current plan";
-
-    const confirmed = window.confirm(
-      `Are you sure you want to upgrade from ${currentPlan} to ${plan}? Stripe will calculate and charge the applicable prorated amount.`,
-    );
-
-    if (!confirmed) {
-      return;
-    }
-
     try {
-      setChangingPlan(plan);
+      setPreviewingPlan(plan);
       setError("");
 
-      const response = await changeSubscriptionPlan(plan);
+      const response = await previewSubscriptionUpgrade(plan);
 
       if (!response.success) {
         throw new Error(
-          response.message || "Failed to change subscription plan.",
+          response.message || "Failed to preview subscription upgrade.",
         );
       }
 
-      const updated = await waitForSubscriptionUpdate(
-        (subscription) => subscription.plan === plan,
-      );
-
-      if (!updated) {
-        setError(
-          "Your upgrade is still being processed. Please check again shortly.",
-        );
-
-        return;
-      }
-
-      onSubscriptionUpdated?.();
+      // Store preview data so the UI can display it
+      setUpgradePreview(response.preview);
     } catch (error) {
-      console.error("Change subscription plan error:", error);
+      console.error("Preview subscription upgrade error:", error);
 
       setError(
         error.response?.data?.message ||
           error.message ||
-          "Failed to upgrade subscription.",
+          "Failed to preview subscription upgrade.",
       );
     } finally {
-      setChangingPlan(null);
+      setPreviewingPlan(null);
     }
   };
 
@@ -216,6 +202,45 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   };
 
   // -----------------------------------------
+  // Cancel scheduled plan
+  // -----------------------------------------
+
+  const handleCancelScheduledPlan = async () => {
+    const confirmed = window.confirm(
+      `Are you sure you want to cancel the scheduled change to ${subscription.scheduledPlan}? Your current ${subscription.planName} plan will remain active.`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setCancelingScheduledPlan(true);
+      setError("");
+
+      const response = await cancelScheduledPlan();
+
+      if (!response.success) {
+        throw new Error(response.message || "Failed to cancel scheduled plan.");
+      }
+
+      await loadSubscription();
+
+      onSubscriptionUpdated?.();
+    } catch (error) {
+      console.error("Cancel scheduled plan error:", error);
+
+      setError(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to cancel scheduled plan.",
+      );
+    } finally {
+      setCancelingScheduledPlan(false);
+    }
+  };
+
+  // -----------------------------------------
   // Restore subscription cancellation
   // -----------------------------------------
 
@@ -271,6 +296,7 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
         console.log("Initial subscription:", data.subscription);
 
         setSubscription(data.subscription);
+
         onSubscriptionLoaded?.(data.subscription);
       } catch (error) {
         console.error("Load subscription error:", error);
@@ -315,6 +341,12 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   }
 
   // -----------------------------------------
+  // Scheduled plan
+  // -----------------------------------------
+
+  const hasScheduledPlan = subscription.scheduledPlan !== "none";
+
+  // -----------------------------------------
   // Plan levels
   // -----------------------------------------
 
@@ -331,7 +363,6 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       {/* Header */}
-
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm text-slate-500">Current plan</p>
@@ -345,10 +376,8 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
           {subscription.status}
         </span>
       </div>
-
       {/* Scheduled Plan Change */}
-
-      {subscription.scheduledPlan && subscription.scheduledPlan !== "none" && (
+      {hasScheduledPlan && (
         <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-medium text-amber-800">
             Scheduled plan change
@@ -369,11 +398,25 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
               {new Date(subscription.scheduledPlanDate).toLocaleDateString()}
             </p>
           )}
+
+          <button
+            onClick={handleCancelScheduledPlan}
+            disabled={
+              cancelingScheduledPlan ||
+              changingPlan !== null ||
+              downgradingPlan !== null ||
+              canceling ||
+              restoring
+            }
+            className="mt-4 rounded-xl border border-amber-300 px-4 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {cancelingScheduledPlan
+              ? "Canceling..."
+              : "Cancel Scheduled Change"}
+          </button>
         </div>
       )}
-
       {/* Subscription Information */}
-
       <div className="mt-6 grid grid-cols-3 gap-4">
         {/* Image Limit */}
 
@@ -405,26 +448,19 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
           </p>
         </div>
       </div>
-
       {/* Cancel Subscription */}
-
-      {subscription.status === "active" && !subscription.cancelAtPeriodEnd && (
-        <button
-          onClick={handleCancelSubscription}
-          disabled={
-            canceling ||
-            changingPlan !== null ||
-            downgradingPlan !== null ||
-            restoring
-          }
-          className="mt-6 rounded-xl border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {canceling ? "Canceling..." : "Cancel Subscription"}
-        </button>
-      )}
-
+      {subscription.status === "active" &&
+        !subscription.cancelAtPeriodEnd &&
+        !hasScheduledPlan && (
+          <button
+            onClick={handleCancelSubscription}
+            disabled={canceling || restoring || cancelingScheduledPlan}
+            className="mt-6 rounded-xl border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {canceling ? "Canceling..." : "Cancel Subscription"}
+          </button>
+        )}
       {/* Restore Subscription */}
-
       {subscription.status === "active" && subscription.cancelAtPeriodEnd && (
         <button
           onClick={handleRestoreSubscription}
@@ -432,16 +468,15 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
             restoring ||
             changingPlan !== null ||
             downgradingPlan !== null ||
-            canceling
+            canceling ||
+            cancelingScheduledPlan
           }
           className="mt-6 rounded-xl border border-emerald-200 px-4 py-2 text-sm font-medium text-emerald-600 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {restoring ? "Restoring..." : "Restore Subscription"}
         </button>
       )}
-
       {/* Change Plan */}
-
       {subscription.status === "active" && (
         <div className="mt-6">
           <p className="mb-3 text-sm font-medium text-slate-700">Change plan</p>
@@ -457,10 +492,6 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
               const isUpgrade = selectedLevel > currentLevel;
 
               const isDowngrade = selectedLevel < currentLevel;
-
-              const hasScheduledPlan =
-                subscription.scheduledPlan &&
-                subscription.scheduledPlan !== "none";
 
               return (
                 <button
@@ -479,6 +510,7 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
                     downgradingPlan !== null ||
                     canceling ||
                     restoring ||
+                    cancelingScheduledPlan ||
                     isCurrentPlan ||
                     hasScheduledPlan
                   }
@@ -496,6 +528,121 @@ const SubscriptionCard = ({onSubscriptionUpdated, onSubscriptionLoaded}) => {
                 </button>
               );
             })}
+          </div>
+        </div>
+      )}
+      {upgradePreview && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            {/* Header */}
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-gray-900">
+                Upgrade Subscription
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Review your upgrade before continuing.
+              </p>
+            </div>
+
+            {/* Plan Information */}
+            <div className="space-y-4 rounded-xl bg-gray-50 p-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-500">Current plan</span>
+
+                <span className="font-medium capitalize text-gray-900">
+                  {upgradePreview.currentPlan}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-500">New plan</span>
+
+                <span className="font-medium capitalize text-gray-900">
+                  {upgradePreview.plan}
+                </span>
+              </div>
+
+              <div className="border-t border-gray-200 pt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-500">Amount due now</span>
+
+                  <span className="text-lg font-bold text-gray-900">
+                    {upgradePreview.amountDueFormatted}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Information */}
+            <p className="mt-4 text-xs leading-5 text-gray-500">
+              This amount is based on the prorated adjustment for upgrading
+              during your current billing period.
+            </p>
+
+            {/* Actions */}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setUpgradePreview(null)}
+                disabled={changingPlan}
+                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setChangingPlan(upgradePreview.plan);
+                    setError("");
+
+                    const response = await changeSubscriptionPlan(
+                      upgradePreview.plan,
+                    );
+
+                    if (!response.success) {
+                      throw new Error(
+                        response.message ||
+                          "Failed to change subscription plan.",
+                      );
+                    }
+
+                    // Close the preview after the upgrade request succeeds
+                    setUpgradePreview(null);
+
+                    const updated = await waitForSubscriptionUpdate(
+                      (subscription) =>
+                        subscription.plan === upgradePreview.plan,
+                    );
+
+                    if (!updated) {
+                      setError(
+                        "Your upgrade is still being processed. Please check again shortly.",
+                      );
+                      return;
+                    }
+
+                    onSubscriptionUpdated?.();
+                  } catch (error) {
+                    console.error("Change subscription plan error:", error);
+
+                    setError(
+                      error.response?.data?.message ||
+                        error.message ||
+                        "Failed to upgrade subscription.",
+                    );
+                  } finally {
+                    setChangingPlan(null);
+                  }
+                }}
+                disabled={changingPlan}
+                className="flex-1 rounded-lg bg-black px-4 py-2.5 text-sm font-medium text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {changingPlan ? "Processing..." : `Confirm Upgrade`}
+              </button>
+            </div>
           </div>
         </div>
       )}

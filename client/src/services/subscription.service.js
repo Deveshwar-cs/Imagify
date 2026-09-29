@@ -59,3 +59,11 @@ export const createCheckoutSession = async (plan) => {
 
   return response.data;
 };
+
+export const previewSubscriptionUpgrade = async (plan) => {
+  const response = await api.post("/subscription/preview-upgrade", {plan});
+
+  console.log("subscription upgrade preview:", response);
+
+  return response.data;
+};

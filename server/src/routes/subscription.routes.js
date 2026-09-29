@@ -8,6 +8,7 @@ import {
   restoreSubscription,
   scheduleDowngrade,
   cancelScheduledPlan,
+  previewSubscriptionUpgrade,
 } from "../controllers/subscription.controller.js";
 
 import {authenticateUser} from "../middleware/auth.middleware.js";
@@ -27,5 +28,7 @@ router.post("/cancel-scheduled-plan", authenticateUser, cancelScheduledPlan);
 router.post("/cancel", authenticateUser, cancelSubscription);
 
 router.post("/restore", authenticateUser, restoreSubscription);
+
+router.post("/preview-upgrade", authenticateUser, previewSubscriptionUpgrade);
 
 export default router;

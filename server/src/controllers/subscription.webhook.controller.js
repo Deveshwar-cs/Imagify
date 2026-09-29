@@ -58,11 +58,10 @@ export const handleStripeWebhook = async (req, res) => {
           await stripe.subscriptions.retrieve(subscriptionId);
 
         const priceId = subscription.items.data[0]?.price?.id;
-
+        // Object.enteries give key value pairs:- we don't need key so, we write it like ([,plan]) for distructuring
         const matchedPlan = Object.entries(SUBSCRIPTION_PLANS).find(
           ([, plan]) => plan.priceId === priceId,
         );
-
         const plan = matchedPlan?.[0];
 
         if (!plan) {
@@ -72,6 +71,8 @@ export const handleStripeWebhook = async (req, res) => {
           );
           break;
         }
+
+        // stripe give us time period in second but Date want it in millieseconds
 
         const currentPeriodEnd = subscription.current_period_end
           ? new Date(subscription.current_period_end * 1000)
