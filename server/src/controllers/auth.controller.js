@@ -6,6 +6,7 @@ import {verifyGoogleToken} from "../services/google.auth.service.js";
 export const googleLogin = async (req, res) => {
   try {
     const {credential} = req.body;
+    const isProduction = process.env.NODE_ENV === "production";
 
     if (!credential) {
       return res.status(400).json({
@@ -51,9 +52,10 @@ export const googleLogin = async (req, res) => {
 
     res.cookie("authToken", token, {
       httpOnly: true,
-      sameSite: "lax",
-      secure: false,
+      sameSite: isProduction ? "none" : "lax",
+      secure: isProduction,
       maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: "/",
     });
 
     return res.status(200).json({
