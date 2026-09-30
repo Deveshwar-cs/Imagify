@@ -8,7 +8,7 @@ export const indentifyGuest = (req, res, next) => {
 
     res.cookie("guestId", guestId, {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "none",
       secure: false,
       maxAge: 30 * 24 * 60 * 60 * 1000,
     });

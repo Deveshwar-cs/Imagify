@@ -22,12 +22,13 @@ app.use(
       "https://imagify.com",
       "https://imagify-taupe-iota.vercel.app",
       "https://imagify-git-main-logic-lords.vercel.app",
+      "https://polyester-rocky-material.ngrok-free.dev",
     ],
     credentials: true,
   }),
 );
 
-app.get("/api/health", (req, res) => {
+app.get("/", (req, res) => {
   res.json({
     success: true,
     message: "Imagify api is running",
