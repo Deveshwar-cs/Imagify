@@ -28,6 +28,12 @@ app.use(
   }),
 );
 
+app.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Imagify api is running",
+  });
+});
 app.get("/", (req, res) => {
   res.json({
     success: true,
