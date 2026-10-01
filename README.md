@@ -544,6 +544,8 @@ STRIPE_CANCEL_URL=http://localhost:5173/cancel
 VITE_API_URL=http://localhost:5000/api
 
 VITE_GOOGLE_CLIENT_ID=your_google_client_id
+
+VITE_VAPID_PUBLIC_KEY=your_vapid_public_key
 ```
 
 > **Security:** Never commit `.env` files, API keys, private keys, JWT secrets, Stripe secrets, Cloudinary secrets, or SSL private keys to GitHub.
