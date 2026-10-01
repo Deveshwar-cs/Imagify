@@ -3,13 +3,9 @@ import express from "express";
 import upload from "../config/multer.js";
 
 import {
-  compressImage,
   getBatchStatus,
-  improveQuality,
   queueImageProcessing,
-  resizeImage,
   uploadImage,
-  upscaleImage,
   subscribeToPush,
   testPushNotification,
 } from "../controllers/image.controller.js";
@@ -32,15 +28,6 @@ router.post(
   upload.array("images", 10),
   uploadImage,
 );
-
-// Direct image processing
-router.post("/:imageId/resize", identifyUserOrGuest, resizeImage);
-
-router.post("/:imageId/compress", identifyUserOrGuest, compressImage);
-
-router.post("/:imageId/quality", identifyUserOrGuest, improveQuality);
-
-router.post("/:imageId/upscale", identifyUserOrGuest, upscaleImage);
 
 // Queue-based processing
 router.post("/process", identifyUserOrGuest, queueImageProcessing);

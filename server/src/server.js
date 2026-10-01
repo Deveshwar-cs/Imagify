@@ -27,7 +27,6 @@ app.use(
     credentials: true,
   }),
 );
-
 app.get("/api/health", (req, res) => {
   res.json({
     success: true,

@@ -455,6 +455,7 @@ uploadButton.addEventListener("click", async () => {
 
     const response = await fetch(
       "http://localhost:5000/api/images/share/screenshot",
+      // "https://imagify-k2gv.onrender.com/api/images/share/screenshot",
       {
         method: "POST",
         body: formData,

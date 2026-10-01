@@ -1,6 +1,10 @@
 import {createContext, useContext, useEffect, useState} from "react";
 
-import {getCurrentUser, googleLogin} from "../../services/auth.service";
+import {
+  getCurrentUser,
+  googleLogin,
+  logoutUser,
+} from "../../services/auth.service";
 
 const AuthContext = createContext(null);
 
@@ -39,7 +43,9 @@ export const AuthProvider = ({children}) => {
     return response;
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await logoutUser();
+
     setUser(null);
   };
 

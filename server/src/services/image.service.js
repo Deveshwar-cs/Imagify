@@ -3,9 +3,7 @@ import path from "path";
 import os from "os";
 import crypto from "crypto";
 
-import sharp from "sharp";
 import cloudinary from "../config/cloudinary.js";
-import {buffer} from "stream/consumers";
 
 export const createTempFilePath = (extension = ".jpg") => {
   const fileName = `${crypto.randomBytes(12).toString("hex")}${extension}`;
