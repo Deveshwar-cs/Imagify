@@ -53,6 +53,121 @@ const getOwnerQuery = (req) => {
 
 /**
  * --------------------------------------------------------------------------
+ * Upload Image
+ * --------------------------------------------------------------------------
+ */
+export const uploadImage = async (req, res) => {
+  try {
+    console.log("Uploaded files:", req.files);
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload an image",
+      });
+    }
+
+    // -----------------------------
+    // STORAGE LIMIT CHECK
+    // (runs BEFORE any Cloudinary upload — this is the fix)
+    // -----------------------------
+
+    const ownerQuery = getOwnerQuery(req);
+
+    let storageLimit;
+
+    if (req.user) {
+      const userPlan = req.user.subscription?.plan;
+      storageLimit = PLAN_STORAGE_LIMITS[userPlan] ?? 0;
+    } else {
+      storageLimit = GUEST_STORAGE_LIMIT;
+    }
+
+    const currentStored = await Image.countDocuments(ownerQuery);
+
+    if (currentStored + req.files.length > storageLimit) {
+      return res.status(429).json({
+        success: false,
+        message: `Storage limit reached. Your plan allows ${storageLimit} stored images.`,
+        usage: {
+          stored: currentStored,
+          limit: storageLimit,
+        },
+      });
+    }
+
+    // -----------------------------
+    // UPLOAD LOOP (unchanged from before)
+    // -----------------------------
+
+    const uploadedImages = [];
+
+    for (const file of req.files) {
+      const metadata = await sharp(file.buffer).metadata();
+
+      const result = await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: "imagify/originals",
+            resource_type: "image",
+          },
+          (error, result) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve(result);
+            }
+          },
+        );
+
+        uploadStream.end(file.buffer);
+      });
+
+      const image = await Image.create({
+        // Logged-in user OR guest
+        user: req.user?._id || null,
+        guestId: req.guestId || null,
+
+        originalName: file.originalname,
+        fileName: result.public_id,
+        mimeType: file.mimetype,
+        size: file.size,
+        width: metadata.width,
+        height: metadata.height,
+        url: result.secure_url,
+      });
+
+      uploadedImages.push({
+        id: image._id,
+        originalName: image.originalName,
+        fileName: image.fileName,
+        mimeType: image.mimeType,
+        size: image.size,
+        width: image.width,
+        height: image.height,
+        url: image.url,
+      });
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: `${uploadedImages.length} image${
+        uploadedImages.length > 1 ? "s" : ""
+      } uploaded successfully`,
+      images: uploadedImages,
+    });
+  } catch (error) {
+    console.error("Upload image error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to upload image",
+    });
+  }
+};
+
+/**
+ * --------------------------------------------------------------------------
  * Queue Image Processing
  * --------------------------------------------------------------------------
  */
