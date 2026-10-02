@@ -43,7 +43,9 @@ const App = () => {
               </ProtectedRoute>
             }
           />
+
           <Route path="/pricing" element={<Pricing />} />
+
           <Route
             path="/subscription"
             element={

@@ -1,4 +1,5 @@
 import {useEffect, useState} from "react";
+
 import {
   getBatchStatus,
   startImageProcessing,
@@ -6,10 +7,13 @@ import {
 
 const useImageProcessing = () => {
   const [batchId, setBatchId] = useState(null);
+
   const [batchStatus, setBatchStatus] = useState(null);
+
   const [progress, setProgress] = useState(0);
 
   const [processing, setProcessing] = useState(false);
+
   const [processingError, setProcessingError] = useState("");
 
   const [resizeOptions, setResizeOptions] = useState({
@@ -39,8 +43,30 @@ const useImageProcessing = () => {
     setProcessing(false);
   };
 
-  // Start resize processing
-  const handleResize = async (selectedImages) => {
+  // Create FormData for image processing
+  const createProcessingFormData = (
+    selectedImages,
+    operation,
+    options = {},
+  ) => {
+    const formData = new FormData();
+
+    // Add selected image files.
+    for (const file of selectedImages) {
+      formData.append("images", file);
+    }
+
+    // Add operation.
+    formData.append("operation", operation);
+
+    // Convert options object to JSON string.
+    formData.append("options", JSON.stringify(options));
+
+    return formData;
+  };
+
+  // Start processing
+  const startProcessing = async (selectedImages, operation, options = {}) => {
     if (selectedImages.length === 0) {
       return;
     }
@@ -51,19 +77,20 @@ const useImageProcessing = () => {
     setProgress(0);
 
     try {
-      const response = await startImageProcessing({
-        imageIds: selectedImages,
-        operation: "resize",
-        options: resizeOptions,
-      });
+      const formData = createProcessingFormData(
+        selectedImages,
+        operation,
+        options,
+      );
+
+      const response = await startImageProcessing(formData);
 
       if (!response.success) {
-        throw new Error(
-          response.message || "Failed to start resize processing",
-        );
+        throw new Error(response.message || "Failed to start image processing");
       }
 
       setBatchId(response.batchId);
+
       setBatchStatus({
         status: "processing",
         totalImages: response.totalImages,
@@ -73,108 +100,26 @@ const useImageProcessing = () => {
     } catch (error) {
       handleProcessingError(error);
     }
+  };
+
+  // Start resize processing
+  const handleResize = async (selectedImages) => {
+    await startProcessing(selectedImages, "resize", resizeOptions);
   };
 
   // Start compression
   const handleCompress = async (selectedImages) => {
-    if (selectedImages.length === 0) {
-      return;
-    }
-
-    setProcessing(true);
-    setProcessingError("");
-    setBatchStatus(null);
-    setProgress(0);
-
-    try {
-      const response = await startImageProcessing({
-        imageIds: selectedImages,
-        operation: "compress",
-        options: compressOptions,
-      });
-
-      if (!response.success) {
-        throw new Error(response.message || "Failed to start compression");
-      }
-
-      setBatchId(response.batchId);
-      setBatchStatus({
-        status: "processing",
-        totalImages: response.totalImages,
-        completedImages: 0,
-        failedImages: 0,
-      });
-    } catch (error) {
-      handleProcessingError(error);
-    }
+    await startProcessing(selectedImages, "compress", compressOptions);
   };
 
   // Start quality improvement
   const handleQuality = async (selectedImages) => {
-    if (selectedImages.length === 0) {
-      return;
-    }
-
-    setProcessing(true);
-    setProcessingError("");
-    setBatchStatus(null);
-    setProgress(0);
-
-    try {
-      const response = await startImageProcessing({
-        imageIds: selectedImages,
-        operation: "quality",
-        options: {},
-      });
-
-      if (!response.success) {
-        throw new Error(response.message || "Failed to improve image quality");
-      }
-
-      setBatchId(response.batchId);
-      setBatchStatus({
-        status: "processing",
-        totalImages: response.totalImages,
-        completedImages: 0,
-        failedImages: 0,
-      });
-    } catch (error) {
-      handleProcessingError(error);
-    }
+    await startProcessing(selectedImages, "quality", {});
   };
 
   // Start upscale processing
   const handleUpscale = async (selectedImages) => {
-    if (selectedImages.length === 0) {
-      return;
-    }
-
-    setProcessing(true);
-    setProcessingError("");
-    setBatchStatus(null);
-    setProgress(0);
-
-    try {
-      const response = await startImageProcessing({
-        imageIds: selectedImages,
-        operation: "upscale",
-        options: upscaleOptions,
-      });
-
-      if (!response.success) {
-        throw new Error(response.message || "Failed to upscale images");
-      }
-
-      setBatchId(response.batchId);
-      setBatchStatus({
-        status: "processing",
-        totalImages: response.totalImages,
-        completedImages: 0,
-        failedImages: 0,
-      });
-    } catch (error) {
-      handleProcessingError(error);
-    }
+    await startProcessing(selectedImages, "upscale", upscaleOptions);
   };
 
   // Poll batch status
@@ -184,6 +129,7 @@ const useImageProcessing = () => {
     }
 
     let intervalId;
+
     let cancelled = false;
 
     const checkBatchStatus = async () => {

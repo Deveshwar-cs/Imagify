@@ -1,62 +1,94 @@
 import crypto from "crypto";
+import sharp from "sharp";
 
 import Share from "../models/share.model.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
-import Image from "../models/image.models.js";
-import sharp from "sharp";
-import cloudinary from "../config/cloudinary.js";
-import {
-  PLAN_STORAGE_LIMITS,
-  GUEST_STORAGE_LIMIT,
-} from "../config/usage.config.js";
 
-const getOwnerQuery = (req) => {
-  if (req.user) {
-    return {
-      user: req.user._id,
-      guestId: null,
-    };
-  }
+import {uploadBufferToCloudinary} from "../services/image.service.js";
 
-  return {
-    user: null,
-    guestId: req.guestId,
-  };
-};
+// =========================================
+// CREATE SHARE
+// =========================================
 
 export const createShare = async (req, res) => {
   try {
+    // -----------------------------------------
+    // AUTHENTICATION
+    // -----------------------------------------
+
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: "You must be logged in to share processed images.",
+      });
+    }
+
+    // -----------------------------------------
+    // GET BATCH ID
+    // -----------------------------------------
+
     const {batchId} = req.body;
 
     if (!batchId) {
       return res.status(400).json({
         success: false,
-        message: "Batch ID is required",
+        message: "Batch ID is required.",
       });
     }
 
-    const batch = await ProcessingBatch.findById(batchId);
+    // -----------------------------------------
+    // FIND USER'S BATCH
+    // -----------------------------------------
+
+    const batch = await ProcessingBatch.findOne({
+      _id: batchId,
+      user: req.user._id,
+    });
 
     if (!batch) {
       return res.status(404).json({
         success: false,
-        message: "Processing batch not found!",
+        message: "Processing batch not found.",
       });
     }
 
-    // Share only completed batches
+    // -----------------------------------------
+    // CHECK BATCH STATUS
+    // -----------------------------------------
+
     if (batch.status !== "completed") {
       return res.status(400).json({
         success: false,
-        message: "Image must be completely processed before sharing.",
+        message: "Images must be completely processed before sharing.",
       });
     }
 
-    // Generate temporary token
+    // -----------------------------------------
+    // CHECK RESULTS
+    // -----------------------------------------
+
+    if (!batch.results || batch.results.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No processed results are available to share.",
+      });
+    }
+
+    // -----------------------------------------
+    // GENERATE SECURE TOKEN
+    // -----------------------------------------
+
     const token = crypto.randomBytes(32).toString("hex");
 
-    // Link expires after 1 hour
+    // -----------------------------------------
+    // SET EXPIRATION
+    // -----------------------------------------
+
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    // -----------------------------------------
+    // CREATE SHARE RECORD
+    // -----------------------------------------
 
     const share = await Share.create({
       token,
@@ -64,14 +96,17 @@ export const createShare = async (req, res) => {
       expiresAt,
     });
 
-    const shareUrl = `${process.env.CLIENT_URL}/share/${token}`;
+    // -----------------------------------------
+    // CREATE URL
+    // -----------------------------------------
 
-    console.log("Share link created:", shareUrl);
-    console.log("Share expires at:", expiresAt);
+    const shareUrl = `${process.env.CLIENT_URL}/share/${token}`;
 
     return res.status(201).json({
       success: true,
-      message: "Share link created successfully",
+
+      message: "Share link created successfully.",
+
       share: {
         token: share.token,
         expiresAt: share.expiresAt,
@@ -83,64 +118,98 @@ export const createShare = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to create share link",
+      message: "Failed to create share link.",
     });
   }
 };
+
+// =========================================
+// GET SHARED RESULTS
+// =========================================
 
 export const getSharedResults = async (req, res) => {
   try {
     const {token} = req.params;
 
+    // -----------------------------------------
+    // VALIDATE TOKEN
+    // -----------------------------------------
+
     if (!token) {
       return res.status(400).json({
         success: false,
-        message: "Share token is required",
+        message: "Share token is required.",
       });
     }
 
-    const share = await Share.findOne({token});
+    // -----------------------------------------
+    // FIND SHARE
+    // -----------------------------------------
+
+    const share = await Share.findOne({
+      token,
+    });
 
     if (!share) {
       return res.status(404).json({
         success: false,
-        message: "Share link not found!",
+        message: "Share link not found or expired.",
       });
     }
 
-    // Check expiration
+    // -----------------------------------------
+    // CHECK EXPIRATION
+    // -----------------------------------------
+
     if (share.expiresAt <= new Date()) {
       return res.status(410).json({
         success: false,
-        message: "Share link has expired",
+        message: "Share link has expired.",
       });
     }
 
-    const batch = await ProcessingBatch.findById(share.batchId).populate(
-      "imageIds",
-    );
+    // -----------------------------------------
+    // FIND BATCH
+    // -----------------------------------------
+
+    const batch = await ProcessingBatch.findById(share.batchId);
 
     if (!batch) {
       return res.status(404).json({
         success: false,
-        message: "Shared processing results not found",
+        message: "Shared processing results not found.",
       });
     }
 
-    const sharedImages = batch.imageIds.map((image) => {
-      const processedImage =
-        image.processedImages?.[image.processedImages.length - 1];
+    // -----------------------------------------
+    // CHECK STATUS
+    // -----------------------------------------
+
+    if (batch.status !== "completed") {
+      return res.status(400).json({
+        success: false,
+        message: "Processing is not completed yet.",
+      });
+    }
+
+    // -----------------------------------------
+    // BUILD PUBLIC IMAGE DATA
+    // -----------------------------------------
+
+    const sharedImages = batch.images.map((image) => {
+      const processedImage = batch.results.find(
+        (result) => result.originalName === image.originalName,
+      );
 
       return {
-        id: image._id,
         originalName: image.originalName,
         mimeType: image.mimeType,
         size: image.size,
-        width: image.width,
-        height: image.height,
 
         processedImage: processedImage
           ? {
+              id: processedImage._id,
+              operation: processedImage.operation,
               size: processedImage.size,
               width: processedImage.width,
               height: processedImage.height,
@@ -149,6 +218,10 @@ export const getSharedResults = async (req, res) => {
           : null,
       };
     });
+
+    // -----------------------------------------
+    // RESPONSE
+    // -----------------------------------------
 
     return res.status(200).json({
       success: true,
@@ -162,6 +235,7 @@ export const getSharedResults = async (req, res) => {
         status: batch.status,
         operation: batch.operation,
         options: batch.options,
+
         totalImages: batch.totalImages,
         completedImages: batch.completedImages,
         failedImages: batch.failedImages,
@@ -179,121 +253,121 @@ export const getSharedResults = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to get shared results",
+      message: "Failed to get shared results.",
     });
   }
 };
+
+// =========================================
+// GET SHARED PROCESSED IMAGE
+// =========================================
 
 export const getSharedProcessedImage = async (req, res) => {
   try {
     const {token, imageId} = req.params;
 
-    console.log("Shared image request:", {
-      token,
-      imageId,
-    });
+    // -----------------------------------------
+    // VALIDATE PARAMETERS
+    // -----------------------------------------
 
     if (!token || !imageId) {
       return res.status(400).json({
         success: false,
-        message: "Share token and image ID are required",
+        message: "Share token and image ID are required.",
       });
     }
 
-    // Find share
-    const share = await Share.findOne({token});
+    // -----------------------------------------
+    // FIND SHARE
+    // -----------------------------------------
+
+    const share = await Share.findOne({
+      token,
+    });
 
     if (!share) {
       return res.status(404).json({
         success: false,
-        message: "Share link not found",
+        message: "Share link not found or expired.",
       });
     }
 
-    // Check expiration
+    // -----------------------------------------
+    // CHECK EXPIRATION
+    // -----------------------------------------
+
     if (share.expiresAt <= new Date()) {
       return res.status(410).json({
         success: false,
-        message: "Share link has expired",
+        message: "Share link has expired.",
       });
     }
 
-    // Find batch
+    // -----------------------------------------
+    // FIND BATCH
+    // -----------------------------------------
+
     const batch = await ProcessingBatch.findById(share.batchId);
 
     if (!batch) {
       return res.status(404).json({
         success: false,
-        message: "Shared processing results not found",
+        message: "Shared processing results not found.",
       });
     }
 
-    // Make sure this image belongs to this shared batch
-    const imageBelongsToBatch = batch.imageIds.some(
-      (id) => id.toString() === imageId,
-    );
+    // -----------------------------------------
+    // CHECK STATUS
+    // -----------------------------------------
 
-    if (!imageBelongsToBatch) {
-      return res.status(404).json({
+    if (batch.status !== "completed") {
+      return res.status(400).json({
         success: false,
-        message: "Image not found in the shared batch",
+        message: "Processing is not completed yet.",
       });
     }
 
-    // Find image
-    const image = await Image.findById(imageId);
+    // -----------------------------------------
+    // FIND RESULT SUBDOCUMENT
+    // -----------------------------------------
 
-    if (!image) {
-      return res.status(404).json({
-        success: false,
-        message: "Image not found",
-      });
-    }
-
-    // Get latest processed image
-    const processedImage =
-      image.processedImages?.[image.processedImages.length - 1];
+    const processedImage = batch.results.id(imageId);
 
     if (!processedImage) {
       return res.status(404).json({
         success: false,
-        message: "Processed image not found",
+        message: "Processed image not found in the shared batch.",
       });
     }
 
-    console.log("Fetching processed image from Cloudinary:");
-    console.log(processedImage.url);
+    // -----------------------------------------
+    // FETCH FROM CLOUDINARY
+    // -----------------------------------------
 
-    // Fetch Cloudinary image from backend
     const cloudinaryResponse = await fetch(processedImage.url);
 
-    console.log("Cloudinary response status:", cloudinaryResponse.status);
-
     if (!cloudinaryResponse.ok) {
-      console.error(
-        "Cloudinary error:",
-        cloudinaryResponse.status,
-        cloudinaryResponse.statusText,
-      );
-
       return res.status(502).json({
         success: false,
-        message: "Failed to fetch processed image",
+        message: "Failed to fetch processed image.",
       });
     }
+
+    // -----------------------------------------
+    // CONVERT TO BUFFER
+    // -----------------------------------------
 
     const imageBuffer = Buffer.from(await cloudinaryResponse.arrayBuffer());
 
-    console.log(
-      "Processed image fetched successfully:",
-      imageBuffer.length,
-      "bytes",
-    );
+    // -----------------------------------------
+    // SEND IMAGE
+    // -----------------------------------------
 
-    // Send image through our server
     res.set({
       "Content-Type": processedImage.mimeType || "image/jpeg",
+
       "Content-Length": imageBuffer.length.toString(),
+
       "Cache-Control": "private, max-age=300",
     });
 
@@ -303,206 +377,160 @@ export const getSharedProcessedImage = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to load shared image",
+      message: "Failed to load shared image.",
     });
   }
 };
 
+// =========================================
+// CREATE SCREENSHOT SHARE
+// =========================================
+
 export const createScreenshotShare = async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({
+    // -----------------------------------------
+    // AUTHENTICATION
+    // -----------------------------------------
+
+    if (!req.user) {
+      return res.status(401).json({
         success: false,
-        message: "Screenshot file is required",
+        message: "You must be logged in to share screenshots.",
       });
     }
 
-    // ---------------------------------------
-    // Validate screenshot
-    // ---------------------------------------
+    // -----------------------------------------
+    // CHECK FILE
+    // -----------------------------------------
+
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Screenshot file is required.",
+      });
+    }
+
+    // -----------------------------------------
+    // VALIDATE SCREENSHOT
+    // -----------------------------------------
 
     if (req.file.mimetype !== "image/png") {
       return res.status(400).json({
         success: false,
-        message: "Screenshot must be a PNG image",
+        message: "Screenshot must be a PNG image.",
       });
     }
 
-    // ---------------------------------------
-    // Check storage limit
-    // ---------------------------------------
-
-    const ownerQuery = getOwnerQuery(req);
-    let storageLimit;
-
-    if (req.user) {
-      const userPlan = req.user.subscription?.plan;
-
-      storageLimit = PLAN_STORAGE_LIMITS[userPlan] ?? 0;
-    } else {
-      storageLimit = GUEST_STORAGE_LIMIT;
-    }
-
-    const currentStored = await Image.countDocuments(ownerQuery);
-
-    if (currentStored + 1 > storageLimit) {
-      return res.status(429).json({
-        success: false,
-        message: `Storage limit reached. Your plan allows ${storageLimit} stored images.`,
-        usage: {
-          stored: currentStored,
-          limit: storageLimit,
-        },
-      });
-    }
-
-    // ---------------------------------------
-    // Get image metadata
-    // ---------------------------------------
+    // -----------------------------------------
+    // GET METADATA
+    // -----------------------------------------
 
     const metadata = await sharp(req.file.buffer).metadata();
 
-    // ---------------------------------------
-    // Upload screenshot to Cloudinary
-    // ---------------------------------------
+    if (!metadata.width || !metadata.height) {
+      return res.status(400).json({
+        success: false,
+        message: "Unable to read screenshot dimensions.",
+      });
+    }
 
-    const result = await new Promise((resolve, reject) => {
-      const uploadStream = cloudinary.uploader.upload_stream(
-        {
-          folder: "imagify/originals",
-          resource_type: "image",
-        },
-        (error, result) => {
-          if (error) {
-            reject(error);
-          } else {
-            resolve(result);
-          }
-        },
-      );
+    // -----------------------------------------
+    // UPLOAD TO CLOUDINARY
+    // -----------------------------------------
 
-      uploadStream.end(req.file.buffer);
-    });
+    const result = await uploadBufferToCloudinary(
+      req.file.buffer,
+      "imagify/processing/results/screenshot",
+    );
 
-    // ---------------------------------------
-    // Create Image document
-    // ---------------------------------------
-    const image = await Image.create({
-      user: req.user?._id || null,
+    const originalName = req.file.originalname || "imagify-screenshot.png";
 
-      guestId: req.guestId || null,
-
-      originalName: req.file.originalname || "imagify-screenshot.png",
-
-      fileName: result.public_id,
-
-      mimeType: req.file.mimetype,
-
-      size: req.file.size,
-
-      width: metadata.width,
-
-      height: metadata.height,
-
-      url: result.secure_url,
-
-      // Screenshot is already the final image,
-      // so store it as a processed image too.
-      processedImages: [
-        {
-          operation: "screenshot",
-
-          fileName: result.public_id,
-
-          url: result.secure_url,
-
-          size: req.file.size,
-
-          width: metadata.width,
-
-          height: metadata.height,
-
-          mimeType: req.file.mimetype,
-        },
-      ],
-    });
-
-    // ---------------------------------------
-    // Create completed batch
-    // ---------------------------------------
+    // -----------------------------------------
+    // CREATE COMPLETED BATCH
+    // -----------------------------------------
 
     const batch = await ProcessingBatch.create({
-      user: req.user?._id || null,
-      guestId: req.guestId || null,
+      user: req.user._id,
+      guestId: null,
 
       status: "completed",
 
-      imageIds: [image._id],
+      images: [
+        {
+          originalName,
+          mimeType: req.file.mimetype,
+          size: req.file.size,
+          width: metadata.width,
+          height: metadata.height,
+          url: result.secure_url,
+        },
+      ],
+
+      results: [
+        {
+          originalName,
+          operation: "screenshot",
+          fileName: result.public_id,
+          url: result.secure_url,
+          size: req.file.size,
+          width: metadata.width,
+          height: metadata.height,
+          mimeType: req.file.mimetype,
+        },
+      ],
 
       totalImages: 1,
-
       completedImages: 1,
-
       failedImages: 0,
+
+      notificationSent: false,
 
       operation: "screenshot",
 
       options: {},
     });
 
-    // ---------------------------------------
-    // Generate share token
-    // ---------------------------------------
+    // -----------------------------------------
+    // GENERATE SHARE TOKEN
+    // -----------------------------------------
 
     const token = crypto.randomBytes(32).toString("hex");
 
-    // ---------------------------------------
-    // Share expires after 1 hour
-    // ---------------------------------------
-
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+
+    // -----------------------------------------
+    // CREATE SHARE
+    // -----------------------------------------
 
     const share = await Share.create({
       token,
-
       batchId: batch._id,
-
       expiresAt,
     });
 
-    // ---------------------------------------
-    // Create public URL
-    // ---------------------------------------
-
     const shareUrl = `${process.env.CLIENT_URL}/share/${token}`;
 
-    console.log("Screenshot share created:", shareUrl);
+    // -----------------------------------------
+    // RESPONSE
+    // -----------------------------------------
 
     return res.status(201).json({
       success: true,
 
-      message: "Screenshot uploaded and shared successfully",
+      message: "Screenshot uploaded and shared successfully.",
 
       share: {
         token: share.token,
-
         expiresAt: share.expiresAt,
-
         url: shareUrl,
       },
 
       image: {
-        id: image._id,
-
-        originalName: image.originalName,
-
-        mimeType: image.mimeType,
-
-        size: image.size,
-
-        width: image.width,
-
-        height: image.height,
+        originalName,
+        mimeType: req.file.mimetype,
+        size: req.file.size,
+        width: metadata.width,
+        height: metadata.height,
       },
     });
   } catch (error) {
@@ -510,7 +538,7 @@ export const createScreenshotShare = async (req, res) => {
 
     return res.status(500).json({
       success: false,
-      message: "Failed to create screenshot share",
+      message: "Failed to create screenshot share.",
     });
   }
 };

@@ -1,5 +1,7 @@
 import {useEffect, useState} from "react";
+
 import {Link, useSearchParams} from "react-router-dom";
+
 import {getBatchStatus} from "../services/image.service";
 
 const NotificationResults = () => {
@@ -8,7 +10,9 @@ const NotificationResults = () => {
   const batchId = searchParams.get("batch");
 
   const [batch, setBatch] = useState(null);
+
   const [loading, setLoading] = useState(true);
+
   const [error, setError] = useState("");
 
   const formatFileSize = (bytes) => {
@@ -26,17 +30,20 @@ const NotificationResults = () => {
   useEffect(() => {
     if (!batchId) {
       setError("Batch ID is missing.");
+
       setLoading(false);
+
       return;
     }
 
     const fetchBatch = async () => {
       try {
         setLoading(true);
+
         setError("");
 
         const response = await getBatchStatus(batchId);
-
+        console.log(response);
         setBatch(response.batch);
       } catch (error) {
         console.error("Failed to fetch batch:", error);
@@ -171,10 +178,19 @@ const NotificationResults = () => {
 
           <div className="grid gap-6 md:grid-cols-2">
             {batch.images?.map((image) => {
-              const processedImages = image.processedImages || [];
+              /*
+               * Find the processed result belonging to this
+               * original image.
+               *
+               * The ProcessingBatch now stores:
+               *
+               * batch.images  -> original images
+               * batch.results -> processed images
+               */
 
-              const processedImage =
-                processedImages[processedImages.length - 1];
+              const processedImage = batch.results?.find(
+                (result) => result.originalName === image.originalName,
+              );
 
               if (!processedImage) {
                 return null;

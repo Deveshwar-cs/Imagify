@@ -9,6 +9,14 @@ const ResizePanel = ({
     return null;
   }
 
+  const handleResize = () => {
+    if (!resizeOptions.width && !resizeOptions.height) {
+      return;
+    }
+
+    onResize(selectedImages);
+  };
+
   return (
     <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6">
       <div>
@@ -97,8 +105,8 @@ const ResizePanel = ({
       {/* Process Button */}
       <button
         type="button"
-        onClick={() => onResize(selectedImages)}
-        disabled={processing || !resizeOptions.width || !resizeOptions.height}
+        onClick={handleResize}
+        disabled={processing || (!resizeOptions.width && !resizeOptions.height)}
         className="mt-6 w-full rounded-xl bg-indigo-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {processing ? "Processing..." : "Resize Images"}

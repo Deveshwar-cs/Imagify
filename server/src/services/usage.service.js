@@ -19,7 +19,7 @@ export const getGuestUsage = async (guestId) => {
   if (!usage) {
     usage = await GuestUsage.create({
       guestId,
-      usageCount: 0,
+      processCount: 0,
     });
   }
 
@@ -31,7 +31,7 @@ export const getGuestUsage = async (guestId) => {
 | Reserve Guest Usage
 |--------------------------------------------------------------------------
 |
-| Atomically checks the limit and increments usage.
+| Atomically checks the limit and increments processCount.
 |
 */
 
@@ -44,24 +44,24 @@ export const reserveGuestUsage = async (guestId, imageCount) => {
     throw new Error("Image count must be a positive integer");
   }
 
-  // Make sure the guest has a usage document
+  // Make sure the guest has a usage document.
   await getGuestUsage(guestId);
 
-  // Atomically check the limit and increment usage
+  // Atomically check the limit and increment usage.
   const usage = await GuestUsage.findOneAndUpdate(
     {
       guestId,
-      usageCount: {
+      processCount: {
         $lte: GUEST_IMAGE_LIMIT - imageCount,
       },
     },
     {
       $inc: {
-        usageCount: imageCount,
+        processCount: imageCount,
       },
     },
     {
-      new: true,
+      returnDocument: "after",
     },
   );
 
@@ -80,6 +80,7 @@ export const reserveGuestUsage = async (guestId, imageCount) => {
     usage,
   };
 };
+
 /*
 |--------------------------------------------------------------------------
 | Get Authenticated User Usage
@@ -91,7 +92,7 @@ export const getUserUsage = async (userId) => {
     throw new Error("User ID is required");
   }
 
-  const user = await User.findById(userId).select("usageCount");
+  const user = await User.findById(userId).select("usage");
 
   if (!user) {
     throw new Error("User not found");
@@ -105,8 +106,8 @@ export const getUserUsage = async (userId) => {
 | Reserve Authenticated User Usage
 |--------------------------------------------------------------------------
 |
-| Atomically checks the caller-supplied limit (the user's actual
-| subscription-plan limit) and increments usage.
+| Atomically checks the caller-supplied limit and
+| increments usage.processCount.
 |
 */
 
@@ -127,19 +128,19 @@ export const reserveUserUsage = async (userId, imageCount, limit) => {
     {
       _id: userId,
 
-      usageCount: {
+      "usage.processCount": {
         $lte: limit - imageCount,
       },
     },
     {
       $inc: {
-        usageCount: imageCount,
+        "usage.processCount": imageCount,
       },
     },
     {
-      new: true,
+      returnDocument: "after",
     },
-  ).select("usageCount");
+  ).select("usage");
 
   if (!user) {
     const currentUsage = await getUserUsage(userId);
@@ -157,15 +158,16 @@ export const reserveUserUsage = async (userId, imageCount, limit) => {
   };
 };
 
-/**
- * |--------------------------------------------------------------------------
- * | Release Guest Usage
- * |--------------------------------------------------------------------------
- * |
- * | Decreases guest usage when reserved processing cannot be completed.
- * |
- * |--------------------------------------------------------------------------
- */
+/*
+|--------------------------------------------------------------------------
+| Release Guest Usage
+|--------------------------------------------------------------------------
+|
+| Decreases guest processCount when reserved
+| processing cannot be completed.
+|
+*/
+
 export const releaseGuestUsage = async (guestId, imageCount) => {
   if (!guestId) {
     throw new Error("Guest ID is required");
@@ -178,32 +180,34 @@ export const releaseGuestUsage = async (guestId, imageCount) => {
   const usage = await GuestUsage.findOneAndUpdate(
     {
       guestId,
-      usageCount: {
+
+      processCount: {
         $gte: imageCount,
       },
     },
     {
       $inc: {
-        usageCount: -imageCount,
+        processCount: -imageCount,
       },
     },
     {
-      new: true,
+      returnDocument: "after",
     },
   );
 
   return usage;
 };
 
-/**
- * |--------------------------------------------------------------------------
- * | Release Authenticated User Usage
- * |--------------------------------------------------------------------------
- * |
- * | Decreases user usage when reserved processing cannot be completed.
- * |
- * |--------------------------------------------------------------------------
- */
+/*
+|--------------------------------------------------------------------------
+| Release Authenticated User Usage
+|--------------------------------------------------------------------------
+|
+| Decreases user usage.processCount when reserved
+| processing cannot be completed.
+|
+*/
+
 export const releaseUserUsage = async (userId, imageCount) => {
   if (!userId) {
     throw new Error("User ID is required");
@@ -216,19 +220,20 @@ export const releaseUserUsage = async (userId, imageCount) => {
   const user = await User.findOneAndUpdate(
     {
       _id: userId,
-      usageCount: {
+
+      "usage.processCount": {
         $gte: imageCount,
       },
     },
     {
       $inc: {
-        usageCount: -imageCount,
+        "usage.processCount": -imageCount,
       },
     },
     {
-      new: true,
+      returnDocument: "after",
     },
-  ).select("usageCount");
+  ).select("usage");
 
   return user;
 };

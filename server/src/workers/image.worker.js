@@ -1,10 +1,14 @@
 import {Worker} from "bullmq";
 
 import redisConnection from "../config/redis.js";
+
 import connectDB from "../config/database.js";
 
 import ProcessingBatch from "../models/processing.batch.model.js";
+
 import PushSubscription from "../models/push.subscription.model.js";
+
+import {deleteFromCloudinary} from "../services/image.service.js";
 
 import {
   processResize,
@@ -16,12 +20,18 @@ import {
 import {sendPushNotification} from "../services/push.services.js";
 
 const imageWorker = new Worker(
-  "image-processing",
-  async (job) => {
-    const {imageId, operation, options = {}, batchId} = job.data;
+  "process-image",
 
-    console.log("Processing job:", job.id);
-    console.log("Job data:", job.data);
+  async (job) => {
+    const {
+      sourceUrl,
+      sourcePublicId,
+      originalName,
+      mimeType,
+      operation,
+      options = {},
+      batchId,
+    } = job.data;
 
     let result;
 
@@ -31,19 +41,24 @@ const imageWorker = new Worker(
 
     switch (operation) {
       case "resize":
-        result = await processResize(imageId, options.width, options.height);
+        result = await processResize(
+          sourceUrl,
+          mimeType,
+          options.width,
+          options.height,
+        );
         break;
 
       case "compress":
-        result = await processCompress(imageId, options.level);
+        result = await processCompress(sourceUrl, mimeType, options.level);
         break;
 
       case "quality":
-        result = await processQuality(imageId);
+        result = await processQuality(sourceUrl, mimeType);
         break;
 
       case "upscale":
-        result = await processUpscale(imageId, options.scale);
+        result = await processUpscale(sourceUrl, mimeType, options.scale);
         break;
 
       default:
@@ -51,7 +66,7 @@ const imageWorker = new Worker(
     }
 
     // ============================================================
-    // Update batch after successful image processing
+    // Save processing result to batch
     // ============================================================
 
     const batch = await ProcessingBatch.findOneAndUpdate(
@@ -60,6 +75,19 @@ const imageWorker = new Worker(
         status: "processing",
       },
       {
+        $push: {
+          results: {
+            originalName,
+            operation: result.operation,
+            fileName: result.fileName,
+            url: result.url,
+            size: result.size,
+            width: result.width,
+            height: result.height,
+            mimeType: result.mimeType,
+          },
+        },
+
         $inc: {
           completedImages: 1,
         },
@@ -73,6 +101,18 @@ const imageWorker = new Worker(
       throw new Error(`Processing batch not found: ${batchId}`);
     }
 
+    if (sourcePublicId) {
+      try {
+        await deleteFromCloudinary(sourcePublicId);
+
+        console.log(`Deleted temporary Cloudinary original: ${sourcePublicId}`);
+      } catch (cloudinaryError) {
+        console.error(
+          `Failed to delete temporary Cloudinary original ${sourcePublicId}:`,
+          cloudinaryError.message,
+        );
+      }
+    }
     console.log(
       `Batch ${batchId}: ${batch.completedImages}/${batch.totalImages} completed`,
     );
@@ -86,8 +126,12 @@ const imageWorker = new Worker(
     if (processedImages >= batch.totalImages) {
       console.log(`Batch ${batchId} has finished processing`);
 
-      const finalStatus = batch.failedImages > 0 ? "failed" : "completed";
+      const cleanupAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
+      console.log("Current time:", new Date());
+      console.log("Cleanup time:", cleanupAt);
+
+      const finalStatus = batch.failedImages > 0 ? "failed" : "completed";
       const completedBatch = await ProcessingBatch.findOneAndUpdate(
         {
           _id: batchId,
@@ -98,6 +142,7 @@ const imageWorker = new Worker(
           $set: {
             status: finalStatus,
             notificationSent: true,
+            cleanupAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
           },
         },
         {
@@ -106,15 +151,11 @@ const imageWorker = new Worker(
       );
 
       if (completedBatch) {
-        console.log(`Batch ${batchId} status updated to ${finalStatus}`);
-
         // ========================================================
         // Send completion notification
         // ========================================================
 
         const subscriptions = await PushSubscription.find();
-
-        console.log(`Found ${subscriptions.length} subscription(s)`);
 
         for (const subscription of subscriptions) {
           try {
@@ -128,17 +169,22 @@ const imageWorker = new Worker(
               },
               {
                 title: "Imagify",
+
                 body:
                   completedBatch.status === "completed"
                     ? `${completedBatch.totalImages} image${
                         completedBatch.totalImages > 1 ? "s are" : " is"
                       } ready to download.`
                     : "Image processing finished with some failed images.",
+
                 url: `/notification?batch=${completedBatch._id}`,
               },
             );
 
-            // Remove expired or unsubscribed subscriptions
+            // ====================================================
+            // Remove expired subscriptions
+            // ====================================================
+
             if (pushResult?.expired) {
               await PushSubscription.findByIdAndDelete(subscription._id);
 
@@ -149,7 +195,10 @@ const imageWorker = new Worker(
               continue;
             }
 
-            // Notification was successfully sent
+            // ====================================================
+            // Notification successfully sent
+            // ====================================================
+
             if (pushResult?.success) {
               console.log(
                 `Push notification sent to subscription ${subscription._id}`,
@@ -175,6 +224,7 @@ const imageWorker = new Worker(
       result,
     };
   },
+
   {
     connection: redisConnection,
   },
@@ -209,6 +259,30 @@ imageWorker.on("failed", async (job, error) => {
     return;
   }
 
+  //job still has retry attempts remaning
+  if (job.attemptsMade < job.opts.attempts) {
+    console.log(
+      `Job ${job.id} will be retried. ` +
+        `Attempt ${job.attemptsMade}/${job.opts.attempts}`,
+    );
+
+    return;
+  }
+
+  if (job.data.sourcePublicId) {
+    try {
+      await deleteFromCloudinary(job.data.sourcePublicId);
+
+      console.log(
+        `Deleted temporary Cloudinary original: ${job.data.sourcePublicId}`,
+      );
+    } catch (cloudinaryError) {
+      console.error(
+        `Failed to delete temporary Cloudinary original ${job.data.sourcePublicId}:`,
+        cloudinaryError.message,
+      );
+    }
+  }
   try {
     const batch = await ProcessingBatch.findOneAndUpdate(
       {

@@ -48,7 +48,7 @@ const UploadDropzone = ({onFileChange, error, children}) => {
       )}
 
       {/* Selected Files */}
-      {children}
+      {/* {children} */}
     </section>
   );
 };

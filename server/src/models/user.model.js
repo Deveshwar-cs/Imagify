@@ -37,10 +37,21 @@ const userSchema = new mongoose.Schema(
     |--------------------------------------------------------------------------
     */
 
-    usageCount: {
-      type: Number,
-      default: 0,
-      min: 0,
+    usage: {
+      uploadCount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      processCount: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      resetAt: {
+        type: Date,
+        default: null,
+      },
     },
 
     /*

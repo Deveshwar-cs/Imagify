@@ -1,13 +1,7 @@
 import api from "./api";
 
-export const uploadImages = async (formData) => {
-  const response = await api.post("/images/upload", formData);
-
-  return response.data;
-};
-
-export const startImageProcessing = async (data) => {
-  const response = await api.post("/images/process", data);
+export const startImageProcessing = async (formData) => {
+  const response = await api.post("/images/process", formData);
 
   return response.data;
 };

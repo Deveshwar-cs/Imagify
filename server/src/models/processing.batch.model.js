@@ -21,12 +21,81 @@ const processingBatchSchema = new mongoose.Schema(
       default: "pending",
     },
 
-    imageIds: [
+    // Temporary input images used for this processing batch
+    images: [
       {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Image",
+        originalName: {
+          type: String,
+          required: true,
+        },
+
+        mimeType: {
+          type: String,
+          required: true,
+        },
+
+        size: {
+          type: Number,
+          required: true,
+        },
+
+        url: {
+          type: String,
+          required: true,
+        },
       },
     ],
+
+    // Temporary processed results
+    results: [
+      {
+        originalName: {
+          type: String,
+          required: true,
+        },
+
+        operation: {
+          type: String,
+          required: true,
+        },
+
+        fileName: {
+          type: String,
+          required: true,
+        },
+
+        url: {
+          type: String,
+          required: true,
+        },
+
+        size: {
+          type: Number,
+          required: true,
+        },
+
+        width: {
+          type: Number,
+          required: true,
+        },
+
+        height: {
+          type: Number,
+          required: true,
+        },
+
+        mimeType: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
+
+    cleanupAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
 
     totalImages: {
       type: Number,
@@ -43,8 +112,7 @@ const processingBatchSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // Prevent sending the batch completion
-    // notification more than once.
+    // Prevent sending the batch completion notification more than once.
     notificationSent: {
       type: Boolean,
       default: false,

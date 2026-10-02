@@ -10,6 +10,7 @@ import {
   getStorageUsage,
   deleteStoredImage,
   getStoredImages,
+  saveProcessedImage,
 } from "../controllers/storage.controller.js";
 
 const router = express.Router();
@@ -20,6 +21,8 @@ router.post(
   upload.single("image"),
   uploadStoredImage,
 );
+
+router.post("/save-processed", authenticateUser, saveProcessedImage);
 
 router.get("/images/:imageId", getPublicImage);
 router.get("/usage", authenticateUser, getStorageUsage);

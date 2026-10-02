@@ -23,7 +23,6 @@ export const createCheckoutSession = async (req, res) => {
     const user = req.user;
 
     let customerId = user.subscription?.stripeCustomerId;
-
     // Create Stripe customer if one doesn't exist
     if (!customerId) {
       const customer = await stripe.customers.create({

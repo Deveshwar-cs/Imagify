@@ -1,5 +1,4 @@
 import mongoose from "mongoose";
-
 const guestUsageSchema = new mongoose.Schema(
   {
     guestId: {
@@ -9,7 +8,7 @@ const guestUsageSchema = new mongoose.Schema(
       index: true,
     },
 
-    usageCount: {
+    processCount: {
       type: Number,
       default: 0,
       min: 0,

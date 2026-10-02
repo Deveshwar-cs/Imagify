@@ -1,14 +1,12 @@
 import sharp from "sharp";
 import Image from "../models/image.models.js";
-import fs from "fs/promises";
 import cloudinary from "../config/cloudinary.js";
 import imageQueue from "../queue/image.queue.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
+import {deleteFromCloudinary} from "../services/image.service.js";
 import {
   GUEST_IMAGE_LIMIT,
   PLAN_PROCESSING_LIMITS,
-  PLAN_STORAGE_LIMITS,
-  GUEST_STORAGE_LIMIT,
 } from "../config/usage.config.js";
 import {
   reserveGuestUsage,
@@ -17,13 +15,10 @@ import {
   releaseUserUsage,
 } from "../services/usage.service.js";
 import {sendPushNotification} from "../services/push.services.js";
-import {
-  createTempFilePath,
-  uploadToCloudinary,
-  downloadImageToTemp,
-  cleanupTempFile,
-} from "../services/image.service.js";
 import PushSubscription from "../models/push.subscription.model.js";
+import {uploadBufferToCloudinary} from "../services/image.service.js";
+
+import fs from "fs/promises";
 
 /**
  * --------------------------------------------------------------------------
@@ -53,148 +48,65 @@ const getOwnerQuery = (req) => {
 
 /**
  * --------------------------------------------------------------------------
- * Upload Image
- * --------------------------------------------------------------------------
- */
-export const uploadImage = async (req, res) => {
-  try {
-    console.log("Uploaded files:", req.files);
-
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Please upload an image",
-      });
-    }
-
-    // -----------------------------
-    // STORAGE LIMIT CHECK
-    // (runs BEFORE any Cloudinary upload — this is the fix)
-    // -----------------------------
-
-    const ownerQuery = getOwnerQuery(req);
-
-    let storageLimit;
-
-    if (req.user) {
-      const userPlan = req.user.subscription?.plan;
-      storageLimit = PLAN_STORAGE_LIMITS[userPlan] ?? 0;
-    } else {
-      storageLimit = GUEST_STORAGE_LIMIT;
-    }
-
-    const currentStored = await Image.countDocuments(ownerQuery);
-
-    if (currentStored + req.files.length > storageLimit) {
-      return res.status(429).json({
-        success: false,
-        message: `Storage limit reached. Your plan allows ${storageLimit} stored images.`,
-        usage: {
-          stored: currentStored,
-          limit: storageLimit,
-        },
-      });
-    }
-
-    // -----------------------------
-    // UPLOAD LOOP (unchanged from before)
-    // -----------------------------
-
-    const uploadedImages = [];
-
-    for (const file of req.files) {
-      const metadata = await sharp(file.buffer).metadata();
-
-      const result = await new Promise((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(
-          {
-            folder: "imagify/originals",
-            resource_type: "image",
-          },
-          (error, result) => {
-            if (error) {
-              reject(error);
-            } else {
-              resolve(result);
-            }
-          },
-        );
-
-        uploadStream.end(file.buffer);
-      });
-
-      const image = await Image.create({
-        // Logged-in user OR guest
-        user: req.user?._id || null,
-        guestId: req.guestId || null,
-
-        originalName: file.originalname,
-        fileName: result.public_id,
-        mimeType: file.mimetype,
-        size: file.size,
-        width: metadata.width,
-        height: metadata.height,
-        url: result.secure_url,
-      });
-
-      uploadedImages.push({
-        id: image._id,
-        originalName: image.originalName,
-        fileName: image.fileName,
-        mimeType: image.mimeType,
-        size: image.size,
-        width: image.width,
-        height: image.height,
-        url: image.url,
-      });
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: `${uploadedImages.length} image${
-        uploadedImages.length > 1 ? "s" : ""
-      } uploaded successfully`,
-      images: uploadedImages,
-    });
-  } catch (error) {
-    console.error("Upload image error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to upload image",
-    });
-  }
-};
-
-/**
- * --------------------------------------------------------------------------
  * Queue Image Processing
  * --------------------------------------------------------------------------
  */
 export const queueImageProcessing = async (req, res) => {
   let reservationCreated = false;
+
   let batch = null;
+
   const jobs = [];
 
-  // Declared here (outside the try) so the catch block's rollback
-  // can still see the correct reserved amount even if something
-  // throws partway through.
   let imageCount = 0;
 
+  const uploadedPublicIds = [];
+
   try {
-    const {imageIds, operation, options = {}} = req.body;
-    const allowedOperations = ["resize", "compress", "quality", "upscale"];
+    // ============================================================
+    // Read request data
+    // ============================================================
 
-    // -----------------------------
-    // VALIDATE INPUT
-    // -----------------------------
+    const {operation} = req.body;
+    /*
+     * Because this request is multipart/form-data,
+     * options arrives as a string:
+     *
+     * options = '{"width":"800","height":"","maintainAspectRatio":true}'
+     *
+     * So we need to convert it back into a JavaScript object.
+     */
 
-    if (!Array.isArray(imageIds) || imageIds.length === 0) {
+    let options = {};
+
+    try {
+      options =
+        typeof req.body.options === "string"
+          ? JSON.parse(req.body.options)
+          : (req.body.options ?? {});
+    } catch (error) {
       return res.status(400).json({
         success: false,
-        message: "Please provide at least one image",
+        message: "Invalid processing options",
       });
     }
+
+    const allowedOperations = ["resize", "compress", "quality", "upscale"];
+
+    // ============================================================
+    // Validate uploaded files
+    // ============================================================
+
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Please upload at least one image",
+      });
+    }
+
+    // ============================================================
+    // Validate operation
+    // ============================================================
 
     if (!allowedOperations.includes(operation)) {
       return res.status(400).json({
@@ -203,44 +115,16 @@ export const queueImageProcessing = async (req, res) => {
       });
     }
 
-    // Prevent duplicate image IDs in the same request
-    const uniqueImageIds = [...new Set(imageIds.map(String))];
-    if (uniqueImageIds.length !== imageIds.length) {
-      return res.status(400).json({
-        success: false,
-        message: "Duplicate image IDs are not allowed",
-      });
-    }
+    imageCount = req.files.length;
 
-    // -----------------------------
-    // FIND ONLY OWNED IMAGES
-    // -----------------------------
-
-    const images = await Image.find({
-      _id: {
-        $in: uniqueImageIds,
-      },
-      ...getOwnerQuery(req),
-    });
-
-    if (images.length !== uniqueImageIds.length) {
-      return res.status(404).json({
-        success: false,
-        message: "One or more images were not found",
-      });
-    }
-
-    imageCount = images.length;
-
-    // -----------------------------
-    // RESERVE USAGE ATOMICALLY
-    // -----------------------------
+    // ============================================================
+    // Check processing usage
+    // ============================================================
 
     let reservation;
     let limit;
 
     if (req.user) {
-      // Authenticated user — limit now comes from their subscription plan
       limit = PLAN_PROCESSING_LIMITS[req.user.subscription?.plan] ?? 0;
 
       if (limit === 0) {
@@ -252,31 +136,30 @@ export const queueImageProcessing = async (req, res) => {
 
       reservation = await reserveUserUsage(req.user._id, imageCount, limit);
     } else {
-      // Guest
       if (!req.guestId) {
         return res.status(400).json({
           success: false,
           message: "Guest identity could not be established",
         });
       }
-
       limit = GUEST_IMAGE_LIMIT;
-
       reservation = await reserveGuestUsage(req.guestId, imageCount);
     }
 
-    // -----------------------------
-    // USAGE LIMIT REACHED
-    // -----------------------------
+    // ============================================================
+    // Check whether processing limit was exceeded
+    // ============================================================
 
     if (!reservation.success) {
-      const used = reservation.usage?.usageCount || 0;
+      const used = reservation.usage?.processCount ?? 0;
+
       const remaining = Math.max(limit - used, 0);
 
       return res.status(429).json({
         success: false,
+
         message: req.user
-          ? `You have reached your ${limit}-image limit.`
+          ? `You have reached your ${limit}-image processing limit.`
           : `Guest users can process up to ${limit} images. Please login with Google to continue.`,
 
         usage: {
@@ -291,52 +174,111 @@ export const queueImageProcessing = async (req, res) => {
 
     reservationCreated = true;
 
-    // -----------------------------
-    // CREATE PROCESSING BATCH
-    // -----------------------------
+    // ============================================================
+    // Upload temporary originals directly to Cloudinary
+    // ============================================================
+
+    const batchImages = [];
+
+    for (const file of req.files) {
+      // ----------------------------------------------------------
+      // Get original image dimensions
+      // ----------------------------------------------------------
+
+      const metadata = await sharp(file.buffer).metadata();
+
+      if (!metadata.width || !metadata.height) {
+        throw new Error(
+          `Unable to determine dimensions for ${file.originalname}`,
+        );
+      }
+
+      // ----------------------------------------------------------
+      // Upload buffer directly to Cloudinary
+      // ----------------------------------------------------------
+
+      const cloudinaryResult = await uploadBufferToCloudinary(
+        file.buffer,
+        "imagify/processing/originals",
+      );
+
+      uploadedPublicIds.push(cloudinaryResult.public_id);
+
+      // ----------------------------------------------------------
+      // Store information required by the batch
+      // ----------------------------------------------------------
+
+      batchImages.push({
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        width: metadata.width,
+        height: metadata.height,
+        url: cloudinaryResult.secure_url,
+        publicId: cloudinaryResult.public_id,
+      });
+    }
+
+    // ============================================================
+    // Create processing batch
+    // ============================================================
 
     batch = await ProcessingBatch.create({
       user: req.user?._id || null,
       guestId: req.guestId || null,
 
-      imageIds: images.map((image) => image._id),
+      status: "processing",
+
+      images: batchImages,
+
+      results: [],
 
       totalImages: imageCount,
 
+      completedImages: 0,
+
+      failedImages: 0,
+
+      notificationSent: false,
+
       operation,
+
       options,
-
-      status: "processing",
     });
-    // -----------------------------
-    // ADD JOBS TO BULLMQ
-    // -----------------------------
 
-    for (const image of images) {
+    // ============================================================
+    // Add processing jobs to BullMQ
+    // ============================================================
+    for (const image of batchImages) {
       const job = await imageQueue.add("process-image", {
-        imageId: image._id.toString(),
+        sourceUrl: image.url,
+        sourcePublicId: image.publicId,
+        originalName: image.originalName,
+        mimeType: image.mimeType,
+        size: image.size,
         operation,
         options,
         batchId: batch._id.toString(),
       });
-
+      console.log(job);
       jobs.push(job);
     }
 
-    // -----------------------------
-    // USAGE AFTER RESERVATION
-    // -----------------------------
+    // ============================================================
+    // Calculate usage information
+    // ============================================================
 
-    const used = reservation.usage.usageCount || 0;
+    const used = reservation.usage?.processCount ?? 0;
 
     const remaining = Math.max(limit - used, 0);
 
-    // -----------------------------
-    // RESPONSE
-    // -----------------------------
+    // ============================================================
+    // Response
+    // ============================================================
 
     return res.status(202).json({
       success: true,
+
       message: "Image processing batch added to queue",
 
       batchId: batch._id,
@@ -356,9 +298,9 @@ export const queueImageProcessing = async (req, res) => {
   } catch (error) {
     console.error("Queue image processing error:", error);
 
-    // -----------------------------
-    // ROLLBACK BULLMQ JOBS
-    // -----------------------------
+    // ============================================================
+    // Remove BullMQ jobs if something failed
+    // ============================================================
 
     for (const job of jobs) {
       try {
@@ -371,9 +313,20 @@ export const queueImageProcessing = async (req, res) => {
       }
     }
 
-    // -----------------------------
-    // DELETE FAILED BATCH
-    // -----------------------------
+    for (const publicId of uploadedPublicIds) {
+      try {
+        await deleteFromCloudinary(publicId);
+      } catch (cloudinaryError) {
+        console.error(
+          `Failed to delete Cloudinary file ${publicId}:`,
+          cloudinaryError.message,
+        );
+      }
+    }
+
+    // ============================================================
+    // Delete processing batch if it was created
+    // ============================================================
 
     if (batch?._id) {
       try {
@@ -386,11 +339,9 @@ export const queueImageProcessing = async (req, res) => {
       }
     }
 
-    // -----------------------------
-    // ROLLBACK RESERVED USAGE
-    // (fixed: release exactly what was reserved — imageCount —
-    // instead of jobs.length, which could be lower on a partial failure)
-    // -----------------------------
+    // ============================================================
+    // Roll back reserved processing usage
+    // ============================================================
 
     if (reservationCreated && imageCount > 0) {
       try {
@@ -407,6 +358,10 @@ export const queueImageProcessing = async (req, res) => {
       }
     }
 
+    // ============================================================
+    // Response
+    // ============================================================
+
     return res.status(500).json({
       success: false,
       message: "Failed to queue image processing batch",
@@ -419,6 +374,7 @@ export const queueImageProcessing = async (req, res) => {
  * Get Batch Status
  * --------------------------------------------------------------------------
  */
+
 export const getBatchStatus = async (req, res) => {
   try {
     const {batchId} = req.params;
@@ -426,8 +382,8 @@ export const getBatchStatus = async (req, res) => {
     const batch = await ProcessingBatch.findOne({
       _id: batchId,
       ...getOwnerQuery(req),
-    }).populate("imageIds");
-    console.log(getBatchStatus);
+    });
+
     if (!batch) {
       return res.status(404).json({
         success: false,
@@ -452,13 +408,13 @@ export const getBatchStatus = async (req, res) => {
         options: batch.options,
 
         totalImages: batch.totalImages,
-
         completedImages: batch.completedImages,
         failedImages: batch.failedImages,
 
         progress,
 
-        images: batch.imageIds,
+        images: batch.images,
+        results: batch.results,
       },
     });
   } catch (error) {
@@ -479,7 +435,7 @@ export const getBatchStatus = async (req, res) => {
 export const subscribeToPush = async (req, res) => {
   try {
     const {subscription} = req.body;
-
+    console.log(subscription);
     if (!subscription?.endpoint) {
       return res.status(400).json({
         success: false,

@@ -26,7 +26,6 @@ const shareSchema = new mongoose.Schema(
   },
 );
 
-// Automatically remove expired share documents
 shareSchema.index({expiresAt: 1}, {expireAfterSeconds: 0});
 
 const Share = mongoose.model("Share", shareSchema);

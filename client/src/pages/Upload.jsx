@@ -1,10 +1,13 @@
 import {useState} from "react";
+
 import useImageShare from "../hooks/upload/useImageShare";
 import useImageUpload from "../hooks/upload/useImageUpload";
 import useImageProcessing from "../hooks/upload/useImageProcessing";
+import useImageStorage from "../hooks/upload/useImageStorage";
+
 import UploadHeader from "../components/upload/UploadHeader";
 import UploadDropzone from "../components/upload/UploadDropzone";
-import SelectedFiles from "../components/upload/SelectedFiles";
+// import SelectedFiles from "../components/upload/SelectedFiles";
 import UploadedImages from "../components/upload/UploadedImages";
 import ProcessingOptions from "../components/upload/ProcessingOptions";
 import ResizePanel from "../components/upload/ResizePanel";
@@ -13,16 +16,16 @@ import QualityPanel from "../components/upload/QualityPanel";
 import UpscalePanel from "../components/upload/UpscalePanel";
 import ProcessingError from "../components/upload/ProcessingError";
 import ProcessingProgress from "../components/upload/ProcessingProgress";
+
 const Upload = () => {
   const {
     files,
     previews,
-    uploadedImages,
     selectedImages,
-    loading,
+    // loading,
     handleFileChange,
-    removeFile,
-    handleUpload,
+    // removeFile,
+    // uploadError,
     toggleImageSelection,
     handleSelectAll,
     handleClearSelection,
@@ -55,7 +58,11 @@ const Upload = () => {
     handleCopyShareUrl,
   } = useImageShare(batchId, batchStatus);
 
+  const {savingImageId, saveError, savedImages, handleSaveProcessedImage} =
+    useImageStorage();
+
   const [selectedOperation, setSelectedOperation] = useState(null);
+
   const [error, setError] = useState("");
 
   // ============================================================
@@ -68,6 +75,7 @@ const Upload = () => {
     }
 
     const units = ["Bytes", "KB", "MB", "GB"];
+
     const index = Math.floor(Math.log(bytes) / Math.log(1024));
 
     return `${(bytes / Math.pow(1024, index)).toFixed(2)} ${units[index]}`;
@@ -108,22 +116,31 @@ const Upload = () => {
         ============================================================ */}
 
         <UploadDropzone onFileChange={handleFileChange} error={error}>
-          <SelectedFiles
+          {/* <SelectedFiles
             previews={previews}
             files={files}
             onRemove={removeFile}
-            onUpload={handleUpload}
             loading={loading}
-          />
+            uploadError={uploadError}
+          /> */}
         </UploadDropzone>
 
+        {/* ============================================================
+            SELECTED IMAGES
+        ============================================================ */}
+
         <UploadedImages
-          uploadedImages={uploadedImages}
+          files={files}
+          previews={previews}
           selectedImages={selectedImages}
           onToggleSelection={toggleImageSelection}
           onSelectAll={handleSelectAll}
           onClearSelection={handleClearSelection}
         />
+
+        {/* ============================================================
+            PROCESSING OPTIONS
+        ============================================================ */}
 
         <ProcessingOptions
           selectedImages={selectedImages}
@@ -131,10 +148,16 @@ const Upload = () => {
           onSelectOperation={setSelectedOperation}
           onClearError={() => {
             setError("");
-            // processingError is cleared inside the processing hook
-            // when a new operation starts.
+
+            // processingError is cleared inside
+            // the processing hook when a new
+            // operation starts.
           }}
         />
+
+        {/* ============================================================
+            RESIZE
+        ============================================================ */}
 
         {selectedOperation === "resize" && (
           <ResizePanel
@@ -146,6 +169,10 @@ const Upload = () => {
           />
         )}
 
+        {/* ============================================================
+            COMPRESS
+        ============================================================ */}
+
         {selectedOperation === "compress" && (
           <CompressPanel
             compressOptions={compressOptions}
@@ -156,6 +183,10 @@ const Upload = () => {
           />
         )}
 
+        {/* ============================================================
+            QUALITY
+        ============================================================ */}
+
         {selectedOperation === "quality" && (
           <QualityPanel
             onQuality={handleQuality}
@@ -163,6 +194,10 @@ const Upload = () => {
             processing={processing}
           />
         )}
+
+        {/* ============================================================
+            UPSCALE
+        ============================================================ */}
 
         {selectedOperation === "upscale" && (
           <UpscalePanel
@@ -173,6 +208,7 @@ const Upload = () => {
             processing={processing}
           />
         )}
+
         {/* ============================================================
             PROCESSING ERROR
         ============================================================ */}
@@ -195,7 +231,9 @@ const Upload = () => {
 
         {batchStatus?.status === "completed" && (
           <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            {/* Results Header */}
+            {/* ========================================================
+                RESULTS HEADER
+            ======================================================== */}
 
             <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
               <div>
@@ -220,7 +258,9 @@ const Upload = () => {
               </button>
             </div>
 
-            {/* Share Error */}
+            {/* ========================================================
+                SHARE ERROR
+            ======================================================== */}
 
             {shareError && (
               <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
@@ -228,7 +268,19 @@ const Upload = () => {
               </div>
             )}
 
-            {/* Share URL */}
+            {/* ========================================================
+                SAVE ERROR
+            ======================================================== */}
+
+            {saveError && (
+              <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+                {saveError}
+              </div>
+            )}
+
+            {/* ========================================================
+                SHARE URL
+            ======================================================== */}
 
             {shareUrl && (
               <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -266,26 +318,56 @@ const Upload = () => {
               </div>
             )}
 
-            {/* Images */}
+            {/* ========================================================
+                IMAGES
+            ======================================================== */}
 
             <div className="grid gap-6 md:grid-cols-2">
               {batchStatus.images.map((image) => {
-                const processedImages = image.processedImages || [];
+                /*
+                 * The backend stores originals and processed
+                 * results separately:
+                 *
+                 * batchStatus.images
+                 * batchStatus.results
+                 *
+                 * Find the processed result belonging
+                 * to this original image.
+                 */
 
-                const processedImage =
-                  processedImages[processedImages.length - 1];
+                const processedImage = batchStatus.results.find(
+                  (result) => result.originalName === image.originalName,
+                );
 
                 if (!processedImage) {
                   return null;
                 }
 
+                /*
+                 * The processed result is a Mongoose
+                 * subdocument, so its ID is available
+                 * as processedImage._id.
+                 */
+
+                const resultId = processedImage._id;
+
+                const isSaving = savingImageId === resultId;
+
+                const isSaved = savedImages.includes(resultId);
+
                 return (
                   <div
-                    key={image._id || image.id}
+                    key={`${image.originalName}-${processedImage.fileName}`}
                     className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
                   >
+                    {/* ==================================================
+                        ORIGINAL + PROCESSED
+                    ================================================== */}
+
                     <div className="grid grid-cols-2 gap-3 p-4">
-                      {/* Original */}
+                      {/* ==================================================
+                          ORIGINAL
+                      ================================================== */}
 
                       <div>
                         <p className="mb-2 text-sm font-medium text-slate-700">
@@ -303,13 +385,17 @@ const Upload = () => {
                         <div className="mt-3 space-y-1 text-xs text-slate-500">
                           <p>Size: {formatFileSize(image.size)}</p>
 
-                          <p>
-                            Dimensions: {image.width} × {image.height}
-                          </p>
+                          {image.width && image.height && (
+                            <p>
+                              Dimensions: {image.width} × {image.height}
+                            </p>
+                          )}
                         </div>
                       </div>
 
-                      {/* Processed */}
+                      {/* ==================================================
+                          PROCESSED
+                      ================================================== */}
 
                       <div>
                         <p className="mb-2 text-sm font-medium text-slate-700">
@@ -335,16 +421,41 @@ const Upload = () => {
                       </div>
                     </div>
 
+                    {/* ====================================================
+                        DOWNLOAD + SAVE
+                    ==================================================== */}
+
                     <div className="border-t border-slate-200 bg-white p-4">
-                      <a
-                        href={processedImage.url}
-                        download={processedImage.fileName}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block w-full rounded-xl bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-700"
-                      >
-                        Download
-                      </a>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {/* DOWNLOAD */}
+
+                        <a
+                          href={processedImage.url}
+                          download={processedImage.fileName}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block w-full rounded-xl bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-700"
+                        >
+                          Download
+                        </a>
+
+                        {/* SAVE TO STORAGE */}
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleSaveProcessedImage(batchId, resultId)
+                          }
+                          disabled={isSaving || isSaved}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving
+                            ? "Saving..."
+                            : isSaved
+                              ? "Saved to Storage"
+                              : "Save to Storage"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );

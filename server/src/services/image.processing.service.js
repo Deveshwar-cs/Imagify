@@ -1,7 +1,6 @@
 import sharp from "sharp";
-import fs from "fs/promises";
 
-import Image from "../models/image.models.js";
+import fs from "fs/promises";
 
 import {
   createTempFilePath,
@@ -16,19 +15,18 @@ const extensionMap = {
   "image/webp": ".webp",
 };
 
-const createProcessedImage = async ({
-  image,
-  inputPath,
-  outputPath,
-  operation,
-  folder,
-}) => {
+// ============================================================
+// Create processed image result
+// ============================================================
+
+const createProcessedImage = async ({outputPath, operation, folder}) => {
   const metadata = await sharp(outputPath).metadata();
+
   const stats = await fs.stat(outputPath);
 
   const result = await uploadToCloudinary(outputPath, folder);
 
-  const processedImage = {
+  return {
     operation,
     fileName: result.public_id,
     url: result.secure_url,
@@ -37,27 +35,24 @@ const createProcessedImage = async ({
     height: metadata.height,
     mimeType: `image/${metadata.format}`,
   };
-
-  image.processedImages.push(processedImage);
-
-  await image.save();
-
-  return processedImage;
 };
 
-export const processResize = async (imageId, width, height) => {
+// ============================================================
+// Resize
+// ============================================================
+
+export const processResize = async (sourceUrl, mimeType, width, height) => {
   let inputPath;
   let outputPath;
 
   try {
-    const image = await Image.findById(imageId);
-
-    if (!image) {
-      throw new Error("Image not found");
-    }
-
     const parsedWidth = width ? Number(width) : null;
+
     const parsedHeight = height ? Number(height) : null;
+
+    // ----------------------------------------------------------
+    // Validate dimensions
+    // ----------------------------------------------------------
 
     if (
       (width !== undefined &&
@@ -74,11 +69,23 @@ export const processResize = async (imageId, width, height) => {
       throw new Error("Width or Height is required");
     }
 
-    inputPath = await downloadImageToTemp(image.url);
+    // ----------------------------------------------------------
+    // Download original image
+    // ----------------------------------------------------------
 
-    const extension = extensionMap[image.mimeType] || ".jpg";
+    inputPath = await downloadImageToTemp(sourceUrl);
+
+    // ----------------------------------------------------------
+    // Create output path
+    // ----------------------------------------------------------
+
+    const extension = extensionMap[mimeType] || ".jpg";
 
     outputPath = createTempFilePath(extension);
+
+    // ----------------------------------------------------------
+    // Build resize options
+    // ----------------------------------------------------------
 
     const resizeOptions = {};
 
@@ -90,45 +97,62 @@ export const processResize = async (imageId, width, height) => {
       resizeOptions.height = parsedHeight;
     }
 
+    // ----------------------------------------------------------
+    // Process image
+    // ----------------------------------------------------------
+
     await sharp(inputPath)
       .resize({
         ...resizeOptions,
+
+        // Preserve aspect ratio
         fit: "inside",
+
+        // Allow enlargement for resize operation
         withoutEnlargement: false,
       })
       .toFile(outputPath);
 
+    // ----------------------------------------------------------
+    // Upload result and return information
+    // ----------------------------------------------------------
+
     return await createProcessedImage({
-      image,
-      inputPath,
       outputPath,
+
       operation: "resize",
-      folder: "imagify/processed/resize",
+
+      folder: "imagify/processing/results/resize",
     });
   } finally {
     await cleanupTempFile(inputPath);
+
     await cleanupTempFile(outputPath);
   }
 };
 
-export const processCompress = async (imageId, level = "medium") => {
+// ============================================================
+// Compress
+// ============================================================
+
+export const processCompress = async (
+  sourceUrl,
+  mimeType,
+  level = "medium",
+) => {
   let inputPath;
   let outputPath;
 
   try {
-    const image = await Image.findById(imageId);
-
-    if (!image) {
-      throw new Error("Image not found");
-    }
-
     const compressionLevels = {
       low: {
         quality: 80,
       },
+
       medium: {
         quality: 60,
       },
+
       high: {
         quality: 40,
       },
@@ -140,15 +164,27 @@ export const processCompress = async (imageId, level = "medium") => {
       throw new Error("Invalid compression level");
     }
 
-    inputPath = await downloadImageToTemp(image.url);
+    // ----------------------------------------------------------
+    // Download original image
+    // ----------------------------------------------------------
 
-    const extension = extensionMap[image.mimeType] || ".jpg";
+    inputPath = await downloadImageToTemp(sourceUrl);
+
+    // ----------------------------------------------------------
+    // Create output path
+    // ----------------------------------------------------------
+
+    const extension = extensionMap[mimeType] || ".jpg";
 
     outputPath = createTempFilePath(extension);
 
+    // ----------------------------------------------------------
+    // Create Sharp processor
+    // ----------------------------------------------------------
+
     let imageProcessor = sharp(inputPath);
 
-    switch (image.mimeType) {
+    switch (mimeType) {
       case "image/jpeg":
         imageProcessor = imageProcessor.jpeg({
           quality: compression.quality,
@@ -160,7 +196,6 @@ export const processCompress = async (imageId, level = "medium") => {
         imageProcessor = imageProcessor.png({
           compressionLevel: 9,
           palette: level === "high",
-          quality: compression.quality,
         });
         break;
 
@@ -174,37 +209,56 @@ export const processCompress = async (imageId, level = "medium") => {
         throw new Error("Unsupported image format");
     }
 
+    // ----------------------------------------------------------
+    // Process image
+    // ----------------------------------------------------------
+
     await imageProcessor.toFile(outputPath);
 
+    // ----------------------------------------------------------
+    // Upload result
+    // ----------------------------------------------------------
+
     return await createProcessedImage({
-      image,
-      inputPath,
       outputPath,
+
       operation: "compress",
-      folder: "imagify/processed/compress",
+
+      folder: "imagify/processing/results/compress",
     });
   } finally {
     await cleanupTempFile(inputPath);
+
     await cleanupTempFile(outputPath);
   }
 };
 
-export const processQuality = async (imageId) => {
+// ============================================================
+// Improve quality
+// ============================================================
+
+export const processQuality = async (sourceUrl, mimeType) => {
   let inputPath;
   let outputPath;
 
   try {
-    const image = await Image.findById(imageId);
+    // ----------------------------------------------------------
+    // Download original image
+    // ----------------------------------------------------------
 
-    if (!image) {
-      throw new Error("Image not found");
-    }
+    inputPath = await downloadImageToTemp(sourceUrl);
 
-    inputPath = await downloadImageToTemp(image.url);
+    // ----------------------------------------------------------
+    // Create output path
+    // ----------------------------------------------------------
 
-    const extension = extensionMap[image.mimeType] || ".jpg";
+    const extension = extensionMap[mimeType] || ".jpg";
 
     outputPath = createTempFilePath(extension);
+
+    // ----------------------------------------------------------
+    // Sharpen image
+    // ----------------------------------------------------------
 
     await sharp(inputPath)
       .sharpen({
@@ -214,44 +268,74 @@ export const processQuality = async (imageId) => {
       })
       .toFile(outputPath);
 
+    // ----------------------------------------------------------
+    // Upload result
+    // ----------------------------------------------------------
+
     return await createProcessedImage({
-      image,
-      inputPath,
       outputPath,
+
       operation: "quality",
-      folder: "imagify/processed/quality",
+
+      folder: "imagify/processing/results/quality",
     });
   } finally {
     await cleanupTempFile(inputPath);
+
     await cleanupTempFile(outputPath);
   }
 };
 
-export const processUpscale = async (imageId, scale = 2) => {
+// ============================================================
+// Upscale
+// ============================================================
+
+export const processUpscale = async (sourceUrl, mimeType, scale = 2) => {
   let inputPath;
   let outputPath;
 
   try {
-    const image = await Image.findById(imageId);
-
-    if (!image) {
-      throw new Error("Image not found");
-    }
-
     const parsedScale = Number(scale);
+
+    // ----------------------------------------------------------
+    // Validate scale
+    // ----------------------------------------------------------
 
     if (![2, 3].includes(parsedScale)) {
       throw new Error("Scale must be either 2 or 3");
     }
 
-    inputPath = await downloadImageToTemp(image.url);
+    // ----------------------------------------------------------
+    // Download original image
+    // ----------------------------------------------------------
 
-    const extension = extensionMap[image.mimeType] || ".jpg";
+    inputPath = await downloadImageToTemp(sourceUrl);
+
+    // ----------------------------------------------------------
+    // Get original dimensions
+    // ----------------------------------------------------------
+
+    const metadata = await sharp(inputPath).metadata();
+
+    if (!metadata.width || !metadata.height) {
+      throw new Error("Unable to determine image dimensions");
+    }
+
+    const newWidth = metadata.width * parsedScale;
+
+    const newHeight = metadata.height * parsedScale;
+
+    // ----------------------------------------------------------
+    // Create output path
+    // ----------------------------------------------------------
+
+    const extension = extensionMap[mimeType] || ".jpg";
 
     outputPath = createTempFilePath(extension);
 
-    const newWidth = image.width * parsedScale;
-    const newHeight = image.height * parsedScale;
+    // ----------------------------------------------------------
+    // Upscale image
+    // ----------------------------------------------------------
 
     await sharp(inputPath)
       .resize({
@@ -261,15 +345,20 @@ export const processUpscale = async (imageId, scale = 2) => {
       })
       .toFile(outputPath);
 
+    // ----------------------------------------------------------
+    // Upload result
+    // ----------------------------------------------------------
+
     return await createProcessedImage({
-      image,
-      inputPath,
       outputPath,
+
       operation: `upscale-${parsedScale}x`,
-      folder: `imagify/processed/upscale/${parsedScale}x`,
+
+      folder: `imagify/processing/results/upscale/${parsedScale}x`,
     });
   } finally {
     await cleanupTempFile(inputPath);
+
     await cleanupTempFile(outputPath);
   }
 };

@@ -5,7 +5,6 @@ import upload from "../config/multer.js";
 import {
   getBatchStatus,
   queueImageProcessing,
-  uploadImage,
   subscribeToPush,
   testPushNotification,
 } from "../controllers/image.controller.js";
@@ -19,38 +18,57 @@ import {
 
 import {identifyUserOrGuest} from "../middleware/identify.middleware.js";
 
+import {authenticateUser} from "../middleware/auth.middleware.js";
+
 const router = express.Router();
 
-// Upload
+// =========================================
+// QUEUE-BASED IMAGE PROCESSING
+// =========================================
+
 router.post(
-  "/upload",
+  "/process",
   identifyUserOrGuest,
   upload.array("images", 10),
-  uploadImage,
+  queueImageProcessing,
 );
 
-// Queue-based processing
-router.post("/process", identifyUserOrGuest, queueImageProcessing);
+// =========================================
+// BATCH STATUS
+// =========================================
 
-// Batch status
 router.get("/batches/:batchId", identifyUserOrGuest, getBatchStatus);
 
-// Push notifications
+// =========================================
+// PUSH NOTIFICATIONS
+// =========================================
+
 router.post("/push/subscribe", subscribeToPush);
 
 router.post("/push/test", testPushNotification);
 
-// Sharing
-router.post("/share", createShare);
+// =========================================
+// SHARING
+// =========================================
 
+// Authenticated user creates share link
+router.post("/share", authenticateUser, createShare);
+
+// Public user opens share page
 router.get("/share/:token", getSharedResults);
 
+// Public user requests processed image
 router.get("/share/:token/processed/:imageId", getSharedProcessedImage);
 
-// ScreenShot
+// =========================================
+// SCREENSHOT SHARING
+// =========================================
+
+// Authenticated user uploads screenshot
+// and creates share link
 router.post(
   "/share/screenshot",
-  identifyUserOrGuest,
+  authenticateUser,
   upload.single("image"),
   createScreenshotShare,
 );

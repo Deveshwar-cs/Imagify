@@ -24,3 +24,12 @@ export const deleteStoredImage = async (imageId) => {
 
   return response.data;
 };
+
+export const saveProcessedImage = async (batchId, resultId) => {
+  const response = await api.post("/storage/save-processed", {
+    batchId,
+    resultId,
+  });
+
+  return response.data;
+};

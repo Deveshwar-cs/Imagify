@@ -387,6 +387,7 @@ Imagify/
 │   ├── servers/
 │   └── ssl/
 ├── server/
+│   └── subscription-cycle-testing/
 │   └── src/
 │       ├── config/
 │       ├── controllers/
@@ -395,7 +396,6 @@ Imagify/
 │       ├── queue/
 │       ├── routes/
 │       ├── services/
-│       ├── utils/
 │       └── workers/
 └── README.md
 ```
@@ -721,6 +721,93 @@ Use:
 - Any valid test CVC
 - Any valid test ZIP/postal code
 
+## Test Stripe — Subscription Cycle
+
+The `server/subscription-cycle-testing` folder contains **5 files** used to test the Stripe subscription renewal cycle.
+
+### Testing Steps
+
+1. **Create a user in MongoDB**
+   - First, log in to your application and create the user.
+   - Copy the user's MongoDB `_id`.
+
+2. **Update `create-test-subscription.js`**
+   - Open `create-test-subscription.js`.
+   - Add the user's `_id` to the `USER_ID` variable.
+   - Set the `PRICE_ID` according to the Stripe price you want to test.
+
+3. **Create a Stripe Test Clock**
+   - From the `server` folder, run:
+
+   ```bash
+   node subscription-cycle-testing/create-test-clock.js
+   ```
+
+   - This will generate a Stripe Test Clock.
+   - Copy the generated **Test Clock ID**.
+
+4. **Add the Test Clock ID**
+   - Open `create-test-subscription.js`.
+   - Add the generated clock ID to the `TEST_CLOCK_ID` variable.
+
+5. **Create the test subscription**
+   - Run the test subscription script.
+   - After it completes, you will see the subscription's current billing period and `Reset At` date in the terminal.
+
+   For example:
+
+   ```text
+   Reset At: 2026-11-02T07:42:12.000Z
+   ```
+
+6. **Advance the Test Clock**
+   - Advance the Test Clock to a time **after the `Reset At` time**.
+   - For example:
+
+   ```text
+   Reset At: 2026-11-02T07:42:12.000Z
+   ```
+
+   Advance the clock to something later, such as:
+
+   ```text
+   2026-11-02T08:42:12.000Z
+   ```
+
+   This moves Stripe past the subscription's billing period and triggers the renewal process.
+
+7. **Verify the renewal**
+   - Check your MongoDB database after the Test Clock advances.
+   - The subscription information should be updated successfully.
+   - The usage count should also be reset for the new billing period.
+
+### Testing Flow
+
+````text
+Create User
+    ↓
+Copy MongoDB User ID
+    ↓
+Update USER_ID + PRICE_ID
+    ↓
+Create Test Clock
+    ↓
+Copy Test Clock ID
+    ↓
+Update TEST_CLOCK_ID
+    ↓
+Create Test Subscription
+    ↓
+Get Reset At Time
+    ↓
+Advance Test Clock Past Reset At
+    ↓
+Stripe Renews Subscription
+    ↓
+Webhook Processes Renewal
+    ↓
+MongoDB Gets Updated
+
 ---
 
 # Local HTTPS Setup
@@ -736,7 +823,7 @@ Local domain:
 
 ```text
 https://imagify.com
-```
+````
 
 ---
 

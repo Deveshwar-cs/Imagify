@@ -12,7 +12,6 @@ const SharedResults = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  console.log(token);
 
   useEffect(() => {
     const fetchSharedResults = async () => {
@@ -106,7 +105,7 @@ const SharedResults = () => {
               const processed = image.processedImage;
 
               const processedUrl = processed
-                ? getSharedProcessedImage(token, image.id)
+                ? getSharedProcessedImage(token, processed.id)
                 : null;
 
               console.log("Shared image:", {

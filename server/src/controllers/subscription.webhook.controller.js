@@ -2,6 +2,17 @@ import stripe from "../config/stripe.js";
 import User from "../models/user.model.js";
 import {SUBSCRIPTION_PLANS} from "../config/subscription.plan.js";
 
+const resetUsageForNewBillingPeriod = async (userId, currentPeriodEnd) => {
+  await User.findByIdAndUpdate(userId, {
+    "usage.processCount": 0,
+    "usage.resetAt": currentPeriodEnd,
+  });
+
+  console.log(
+    `Usage reset for user ${userId}. New reset date: ${currentPeriodEnd}`,
+  );
+};
+
 export const handleStripeWebhook = async (req, res) => {
   const signature = req.headers["stripe-signature"];
 
@@ -74,11 +85,35 @@ export const handleStripeWebhook = async (req, res) => {
 
         // stripe give us time period in second but Date want it in millieseconds
 
-        const currentPeriodEnd = subscription.current_period_end
-          ? new Date(subscription.current_period_end * 1000)
+        console.log("Subscription ID:", subscription.id);
+
+        console.log(
+          "Subscription current_period_end:",
+          subscription.current_period_end,
+        );
+
+        console.log(
+          "Subscription billing_cycle_anchor:",
+          subscription.billing_cycle_anchor,
+        );
+
+        console.log("Subscription start_date:", subscription.start_date);
+
+        console.log(
+          "Full subscription:",
+          JSON.stringify(subscription, null, 2),
+        );
+
+        const currentPeriodEndTimestamp =
+          subscription.items.data[0]?.current_period_end;
+
+        const currentPeriodEnd = currentPeriodEndTimestamp
+          ? new Date(currentPeriodEndTimestamp * 1000)
           : null;
 
-        await User.findByIdAndUpdate(
+        console.log("currentPeriodEnd:", currentPeriodEnd);
+
+        const user = await User.findByIdAndUpdate(
           userId,
           {
             "subscription.plan": plan,
@@ -94,12 +129,15 @@ export const handleStripeWebhook = async (req, res) => {
 
             "subscription.scheduledPlan": "none",
             "subscription.scheduledPlanDate": null,
+
+            "usage.processCount": 0,
+            "usage.resetAt": currentPeriodEnd,
           },
           {
             new: true,
           },
         );
-
+        console.log(user);
         console.log(`Subscription activated for user ${userId}: ${plan}`);
 
         break;
@@ -264,6 +302,78 @@ export const handleStripeWebhook = async (req, res) => {
 
         console.log(`Subscription canceled for user ${user._id}`);
 
+        break;
+      }
+
+      // ==================================================
+      // INVOICE PAID
+      // ==================================================
+      case "invoice.paid": {
+        const invoice = event.data.object;
+        console.log(invoice);
+        console.log("========== invoice.paid ==========");
+        console.log("Invoice ID:", invoice.id);
+        console.log("Billing reason:", invoice.billing_reason);
+        console.log(
+          "Subscription ID:",
+          invoice.parent?.subscription_details?.subscription,
+        );
+        console.log("Customer ID:", invoice.customer);
+        console.log("=================================");
+
+        const subscriptionId =
+          invoice.parent?.subscription_details?.subscription;
+
+        if (!subscriptionId) {
+          console.log("No subscription ID found in invoice:", invoice.id);
+          break;
+        }
+
+        if (!subscriptionId) {
+          break;
+        }
+
+        // We only want to reset usage when a subscription
+        // billing periods successfully renews
+
+        if (invoice.billing_reason !== "subscription_cycle") {
+          break;
+        }
+
+        const user = await User.findOne({
+          "subscription.stripeSubscriptionId": subscriptionId,
+        });
+
+        if (!user) {
+          console.log("User not found for invoice:", invoice.id);
+        }
+
+        const subscription =
+          await stripe.subscriptions.retrieve(subscriptionId);
+
+        const subscriptionItem = subscription.items.data[0];
+
+        if (!subscriptionItem) {
+          console.log("Subscription item not found:", subscriptionId);
+          break;
+        }
+
+        const currentPeriodEndTimestamp = subscriptionItem.current_period_end;
+
+        const currentPeriodEnd = currentPeriodEndTimestamp
+          ? new Date(currentPeriodEndTimestamp * 1000)
+          : null;
+
+        await resetUsageForNewBillingPeriod(user._id, currentPeriodEnd);
+
+        // keep subscription period information synchronized
+        user.subscription.currentPeriodEnd = currentPeriodEnd;
+
+        user.subscription.status =
+          subscription.status === "active" ? "active" : subscription.status;
+
+        await user.save();
+        console.log(`Subscription renewed for user ${user._id}`);
         break;
       }
 
