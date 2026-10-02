@@ -1,9 +1,10 @@
 import {useState} from "react";
+import {Link} from "react-router-dom";
 
 import {createCheckoutSession} from "../services/subscription.service";
 
 import SubscriptionCard from "../components/subscription/SubscriptionCard";
-import Navbar from "../components/layout/Navbar";
+
 import Footer from "../components/layout/Footer";
 
 const plans = [
@@ -73,7 +74,22 @@ const Subscription = () => {
 
   return (
     <>
-      <Navbar />
+      {/* Subscription Navbar */}
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+          <Link to="/home" className="text-xl font-bold text-slate-900">
+            Imagify
+          </Link>
+
+          <Link
+            to="/home"
+            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+          >
+            Home
+          </Link>
+        </div>
+      </header>
+
       <main className="min-h-screen bg-slate-50 px-6 py-10">
         <div className="mx-auto max-w-6xl">
           {/* Page Header */}
@@ -132,9 +148,11 @@ const Subscription = () => {
 
             <div className="mt-8 grid gap-6 md:grid-cols-3">
               {plans.map((plan) => {
+                const hasActiveSubscription = subscription?.status === "active";
+
                 const isCurrentPlan =
-                  subscription?.status === "active" &&
-                  subscription?.plan === plan.id;
+                  hasActiveSubscription && subscription?.plan === plan.id;
+
                 return (
                   <div
                     key={plan.id}
@@ -195,17 +213,21 @@ const Subscription = () => {
                     {/* Checkout */}
                     <button
                       onClick={() => handleSubscribe(plan.id)}
-                      disabled={isCurrentPlan || loadingPlan === plan.id}
+                      disabled={
+                        hasActiveSubscription || loadingPlan === plan.id
+                      }
                       className={`mt-7 w-full rounded-xl px-5 py-3 font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                        isCurrentPlan
+                        hasActiveSubscription
                           ? "border border-slate-200 bg-slate-100 text-slate-500"
                           : "bg-slate-900 text-white hover:bg-slate-700"
                       }`}
                     >
-                      {loadingPlan === plan.id
-                        ? "Redirecting..."
-                        : isCurrentPlan
+                      {hasActiveSubscription
+                        ? isCurrentPlan
                           ? "Current Plan"
+                          : "Manage Above"
+                        : loadingPlan === plan.id
+                          ? "Redirecting..."
                           : `Choose ${plan.name}`}
                     </button>
                   </div>
@@ -227,6 +249,7 @@ const Subscription = () => {
           </section>
         </div>
       </main>
+
       <Footer />
     </>
   );

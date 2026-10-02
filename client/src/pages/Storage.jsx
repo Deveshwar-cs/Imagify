@@ -1,6 +1,9 @@
 import {useCallback, useEffect, useState} from "react";
+
 import {Link, useNavigate} from "react-router-dom";
+
 import {getSubscriptionStatus} from "../services/subscription.service";
+
 import {
   getStorageUsage,
   getStoredImages,
@@ -14,6 +17,7 @@ const Storage = ({refreshKey}) => {
   const navigate = useNavigate();
 
   const {isAuthenticated, loading: authLoading, logout} = useAuth();
+
   const [subscription, setSubscription] = useState(null);
   const [images, setImages] = useState([]);
   const [usage, setUsage] = useState(null);
@@ -42,9 +46,7 @@ const Storage = ({refreshKey}) => {
         ]);
 
       setUsage(usageResponse?.usage || null);
-
       setImages(imagesResponse?.images || []);
-
       setSubscription(subscriptionResponse?.subscription || null);
     } catch (error) {
       console.error("Load storage data error:", error);
@@ -162,15 +164,14 @@ const Storage = ({refreshKey}) => {
           </div>
         </header>
 
-        <main className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
-          <div className="animate-pulse rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-            <div className="h-7 w-52 rounded bg-slate-200" />
+        <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
+          <div className="animate-pulse rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+            <div className="h-7 w-44 rounded bg-slate-200 sm:w-52" />
 
-            <div className="mt-3 h-4 w-80 rounded bg-slate-100" />
+            <div className="mt-3 h-4 w-full max-w-xs rounded bg-slate-100" />
 
-            <div className="mt-8 grid gap-6 lg:grid-cols-2">
+            <div className="mt-6 grid gap-5 lg:grid-cols-2">
               <div className="h-48 rounded-2xl bg-slate-100" />
-
               <div className="h-48 rounded-2xl bg-slate-100" />
             </div>
           </div>
@@ -195,7 +196,7 @@ const Storage = ({refreshKey}) => {
   // ============================================
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen overflow-x-hidden bg-slate-50 text-slate-900">
       {/* ============================================
           HEADER
       ============================================ */}
@@ -204,36 +205,36 @@ const Storage = ({refreshKey}) => {
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           {/* Logo */}
 
-          <Link to="/home" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white">
+          <Link to="/home" className="flex items-center gap-2.5 sm:gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white">
               I
             </div>
 
-            <span className="text-xl font-bold tracking-tight text-slate-900">
+            <span className="text-lg font-bold tracking-tight text-slate-900 sm:text-xl">
               Imagify
             </span>
           </Link>
 
           {/* Navigation */}
 
-          <nav className="hidden items-center gap-8 md:flex">
+          <nav className="flex items-center gap-3 sm:gap-5 md:gap-8">
             <Link
               to="/home"
-              className="text-sm font-medium text-slate-500 transition hover:text-slate-900"
+              className="text-xs font-medium text-slate-500 transition hover:text-slate-900 sm:text-sm"
             >
               Home
             </Link>
 
             <Link
               to="/upload"
-              className="text-sm font-medium text-slate-500 transition hover:text-slate-900"
+              className="text-xs font-medium text-slate-500 transition hover:text-slate-900 sm:text-sm"
             >
               Upload
             </Link>
 
             <Link
               to="/storage"
-              className="text-sm font-semibold text-slate-900"
+              className="text-xs font-semibold text-slate-900 sm:text-sm"
             >
               Storage
             </Link>
@@ -241,15 +242,25 @@ const Storage = ({refreshKey}) => {
 
           {/* Authentication */}
 
-          <div className="flex items-center gap-3">
+          <div className="hidden sm:flex">
             <button
               type="button"
               onClick={handleLogout}
-              className="rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:px-5"
             >
               Logout
             </button>
           </div>
+
+          {/* Mobile logout */}
+
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="ml-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 sm:hidden"
+          >
+            Logout
+          </button>
         </div>
       </header>
 
@@ -263,23 +274,23 @@ const Storage = ({refreshKey}) => {
         ============================================ */}
 
         <section className="relative overflow-hidden bg-white">
-          <div className="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-slate-100 blur-3xl" />
+          <div className="absolute -right-32 -top-32 h-64 w-64 rounded-full bg-slate-100 blur-3xl sm:-right-40 sm:-top-40 sm:h-96 sm:w-96" />
 
-          <div className="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-slate-100 blur-3xl" />
+          <div className="absolute -bottom-32 -left-32 h-64 w-64 rounded-full bg-slate-100 blur-3xl sm:-bottom-40 sm:-left-40 sm:h-96 sm:w-96" />
 
-          <div className="relative mx-auto max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
+          <div className="relative mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8">
             <div className="max-w-3xl">
-              <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
+              <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-600 sm:mb-5 sm:px-4 sm:py-2 sm:text-sm">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 Personal image storage
               </div>
 
-              <h1 className="text-4xl font-bold tracking-tight text-slate-950 sm:text-5xl">
+              <h1 className="text-3xl font-bold tracking-tight text-slate-950 sm:text-5xl">
                 Your image storage.
                 <span className="block text-slate-400">Simple and secure.</span>
               </h1>
 
-              <p className="mt-5 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg">
+              <p className="mt-4 max-w-2xl text-sm leading-6 text-slate-500 sm:mt-5 sm:text-lg sm:leading-7">
                 Store your images securely and keep them available whenever you
                 need them.
               </p>
@@ -291,50 +302,50 @@ const Storage = ({refreshKey}) => {
             CONTENT
         ============================================ */}
 
-        <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
           {/* ========================================
               TOP GRID
           ======================================== */}
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
             {/* Storage Usage */}
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+                  <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400 sm:text-sm">
                     Storage
                   </p>
 
-                  <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+                  <h2 className="mt-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                     Storage usage
                   </h2>
                 </div>
 
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-lg">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-lg sm:h-11 sm:w-11">
                   ▣
                 </div>
               </div>
 
               {usage ? (
                 <>
-                  <div className="mt-8 flex items-end justify-between">
+                  <div className="mt-6 flex items-end justify-between gap-4 sm:mt-8">
                     <div>
                       <p className="text-3xl font-bold text-slate-900">
                         {usedImages}
                       </p>
 
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="mt-1 text-xs text-slate-500 sm:text-sm">
                         images stored
                       </p>
                     </div>
 
-                    <p className="text-sm font-medium text-slate-500">
+                    <p className="text-xs font-medium text-slate-500 sm:text-sm">
                       {usedImages} / {imageLimit}
                     </p>
                   </div>
 
-                  <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+                  <div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-100 sm:h-3">
                     <div
                       className="h-full rounded-full bg-slate-900 transition-all duration-500"
                       style={{
@@ -343,13 +354,13 @@ const Storage = ({refreshKey}) => {
                     />
                   </div>
 
-                  <div className="mt-4 flex items-center justify-between">
-                    <p className="text-sm text-slate-500">
+                  <div className="mt-4 flex items-center justify-between gap-4">
+                    <p className="text-xs text-slate-500 sm:text-sm">
                       {remainingImages} image
                       {remainingImages === 1 ? "" : "s"} remaining
                     </p>
 
-                    <p className="text-sm font-medium text-slate-700">
+                    <p className="text-xs font-medium text-slate-700 sm:text-sm">
                       {Math.round(usagePercentage)}% used
                     </p>
                   </div>
@@ -363,12 +374,12 @@ const Storage = ({refreshKey}) => {
 
             {/* Upload */}
 
-            <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-              <p className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+            <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400 sm:text-sm">
                 Add to storage
               </p>
 
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+              <h2 className="mt-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                 Store a new image
               </h2>
 
@@ -376,8 +387,8 @@ const Storage = ({refreshKey}) => {
                 Upload an image to keep it safely in your Imagify storage.
               </p>
 
-              <label className="mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-5 py-8 text-center transition hover:border-slate-400 hover:bg-slate-100">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white shadow-sm">
+              <label className="mt-5 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-7 text-center transition hover:border-slate-400 hover:bg-slate-100 sm:mt-6 sm:px-5 sm:py-8">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-white shadow-sm sm:h-12 sm:w-12">
                   <svg
                     className="h-6 w-6 text-slate-600"
                     fill="none"
@@ -406,10 +417,8 @@ const Storage = ({refreshKey}) => {
                   accept="image/jpeg,image/png,image/webp"
                   onChange={(event) => {
                     setFile(event.target.files?.[0] || null);
-
                     setError("");
                     setMessage("");
-
                     event.target.value = "";
                   }}
                   className="hidden"
@@ -417,7 +426,7 @@ const Storage = ({refreshKey}) => {
               </label>
 
               {file && (
-                <div className="mt-4 flex items-center justify-between gap-4 rounded-xl bg-slate-50 px-4 py-3">
+                <div className="mt-4 flex min-w-0 items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-3 sm:px-4">
                   <p
                     className="min-w-0 truncate text-sm font-medium text-slate-700"
                     title={file.name}
@@ -428,7 +437,7 @@ const Storage = ({refreshKey}) => {
                   <button
                     type="button"
                     onClick={() => setFile(null)}
-                    className="shrink-0 text-sm font-medium text-slate-400 transition hover:text-red-600"
+                    className="shrink-0 text-xs font-medium text-slate-400 transition hover:text-red-600 sm:text-sm"
                   >
                     Remove
                   </button>
@@ -447,30 +456,31 @@ const Storage = ({refreshKey}) => {
           </div>
 
           {/* ========================================
-              Subscription status
+              SUBSCRIPTION STATUS
           ======================================== */}
-          <div className="rounded-3xl border mt-6.25 border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+
+          <div className="mt-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-8">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400 sm:text-sm">
                   Membership
                 </p>
 
-                <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+                <h2 className="mt-2 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                   Current plan
                 </h2>
               </div>
 
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100 text-lg">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-lg sm:h-11 sm:w-11">
                 ★
               </div>
             </div>
 
             {subscription ? (
               <>
-                <div className="mt-8 flex items-center justify-between">
+                <div className="mt-6 flex flex-col gap-4 sm:mt-8 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-3xl font-bold capitalize text-slate-900">
+                    <p className="text-2xl font-bold capitalize text-slate-900 sm:text-3xl">
                       {subscription.planName}
                     </p>
 
@@ -479,7 +489,7 @@ const Storage = ({refreshKey}) => {
                     </p>
                   </div>
 
-                  <span className="rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold capitalize text-emerald-700">
+                  <span className="w-fit rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-semibold capitalize text-emerald-700">
                     {subscription.status}
                   </span>
                 </div>
@@ -516,7 +526,7 @@ const Storage = ({refreshKey}) => {
 
                 <Link
                   to="/subscription"
-                  className="mt-6 inline-flex rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                  className="mt-6 inline-flex w-full items-center justify-center rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 sm:w-auto"
                 >
                   Manage Membership
                 </Link>
@@ -529,13 +539,14 @@ const Storage = ({refreshKey}) => {
 
                 <Link
                   to="/subscription"
-                  className="mt-4 inline-flex rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800"
+                  className="mt-4 inline-flex w-full items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 sm:w-auto"
                 >
                   View Pricing
                 </Link>
               </div>
             )}
           </div>
+
           {/* ========================================
               MESSAGES
           ======================================== */}
@@ -556,14 +567,14 @@ const Storage = ({refreshKey}) => {
               STORED IMAGES
           ======================================== */}
 
-          <div className="mt-12">
+          <div className="mt-10 sm:mt-12">
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400 sm:text-sm">
                   Your collection
                 </p>
 
-                <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+                <h2 className="mt-1 text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
                   Stored images
                 </h2>
 
@@ -585,7 +596,7 @@ const Storage = ({refreshKey}) => {
                     key={item}
                     className="animate-pulse overflow-hidden rounded-2xl border border-slate-200 bg-white"
                   >
-                    <div className="h-48 bg-slate-100" />
+                    <div className="h-52 bg-slate-100 sm:h-48" />
 
                     <div className="space-y-3 p-4">
                       <div className="h-4 w-3/4 rounded bg-slate-200" />
@@ -598,7 +609,7 @@ const Storage = ({refreshKey}) => {
                 ))}
               </div>
             ) : images.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white p-12 text-center">
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white px-5 py-10 text-center sm:p-12">
                 <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100">
                   <svg
                     className="h-8 w-8 text-slate-400"
@@ -629,7 +640,7 @@ const Storage = ({refreshKey}) => {
                 {images.map((image) => (
                   <div
                     key={image.id}
-                    className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg"
+                    className="group min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg"
                   >
                     {/* Image */}
 
@@ -657,24 +668,24 @@ const Storage = ({refreshKey}) => {
                       </p>
 
                       <div className="mt-4 grid grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-slate-50 p-3">
+                        <div className="min-w-0 rounded-xl bg-slate-50 p-3">
                           <p className="text-xs text-slate-400">Dimensions</p>
 
-                          <p className="mt-1 text-sm font-semibold text-slate-700">
+                          <p className="mt-1 truncate text-sm font-semibold text-slate-700">
                             {image.width} × {image.height}
                           </p>
                         </div>
 
-                        <div className="rounded-xl bg-slate-50 p-3">
+                        <div className="min-w-0 rounded-xl bg-slate-50 p-3">
                           <p className="text-xs text-slate-400">Size</p>
 
-                          <p className="mt-1 text-sm font-semibold text-slate-700">
+                          <p className="mt-1 truncate text-sm font-semibold text-slate-700">
                             {(image.size / 1024 / 1024).toFixed(2)} MB
                           </p>
                         </div>
                       </div>
 
-                      <div className="mt-4 flex gap-2">
+                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
                         <a
                           href={image.url}
                           target="_blank"
@@ -706,8 +717,8 @@ const Storage = ({refreshKey}) => {
       ============================================ */}
 
       <footer className="mt-8 border-t border-slate-200 bg-white">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <div className="flex flex-col items-center justify-between gap-4 sm:flex-row">
+        <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-8 lg:px-8">
+          <div className="flex flex-col items-center justify-between gap-3 text-center sm:flex-row sm:text-left">
             <p className="text-sm text-slate-400">
               Simple and powerful image storage.
             </p>

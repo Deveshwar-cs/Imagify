@@ -14,10 +14,12 @@ import SubscriptionSuccess from "./components/subscription/SubscriptionSuccess";
 import SubscriptionCancel from "./components/subscription/SubscriptionCancel";
 import Subscription from "./pages/Subscription";
 import NotificationResults from "./pages/NotificationResults";
+import ScrollToTop from "./components/ScrollToTop";
 
 const App = () => {
   return (
     <BrowserRouter>
+      <ScrollToTop />
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
