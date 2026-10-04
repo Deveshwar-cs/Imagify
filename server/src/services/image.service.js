@@ -4,7 +4,6 @@ import os from "os";
 import crypto from "crypto";
 
 import ProcessingBatch from "../models/processing.batch.model.js";
-
 import cloudinary from "../config/cloudinary.js";
 
 export const createTempFilePath = (extension = ".jpg") => {
@@ -21,7 +20,9 @@ export const downloadImageToTemp = async (imageUrl) => {
   }
 
   const buffer = Buffer.from(await response.arrayBuffer());
+
   const tempPath = createTempFilePath();
+
   await fs.writeFile(tempPath, buffer);
 
   return tempPath;
@@ -35,6 +36,7 @@ export const uploadToCloudinary = async (
     folder,
     resource_type: "image",
   });
+
   return result;
 };
 
@@ -42,6 +44,7 @@ export const cleanupTempFile = async (filePath) => {
   if (!filePath) {
     return;
   }
+
   try {
     await fs.unlink(filePath);
   } catch (error) {
@@ -91,24 +94,86 @@ export const deleteFromCloudinary = async (publicId) => {
 
 export const cleanupProcessedImages = async (results = []) => {
   if (!results.length) {
-    return;
+    return true;
   }
+
+  let allDeleted = true;
+
   for (const result of results) {
     if (!result.fileName) {
+      console.error(
+        "Cannot delete temporary processed image: Cloudinary public ID is missing",
+      );
+
+      allDeleted = false;
       continue;
     }
 
     try {
-      await deleteFromCloudinary(result.fileName);
+      const cloudinaryResult = await deleteFromCloudinary(result.fileName);
 
-      console.log(`Temporary processed image deleted: ${result.fileName}`);
+      if (cloudinaryResult?.result === "ok") {
+        console.log(`Temporary processed image deleted: ${result.fileName}`);
+      } else {
+        console.error(
+          `Cloudinary deletion was not confirmed: ${result.fileName}`,
+        );
+
+        allDeleted = false;
+      }
     } catch (error) {
-      console.log(
+      console.error(
         `Failed to delete temporary processed image: ${result.fileName}`,
-        error,
+        error.message,
+      );
+
+      allDeleted = false;
+    }
+  }
+
+  return allDeleted;
+};
+
+export const cleanupCloudinaryImages = async (images = []) => {
+  if (!images.length) {
+    return true;
+  }
+
+  let allDeleted = true;
+
+  for (const image of images) {
+    if (!image.publicId) {
+      console.error(
+        "Cannot delete temporary image: Cloudinary public ID is missing",
+      );
+
+      allDeleted = false;
+      continue;
+    }
+
+    try {
+      const result = await deleteFromCloudinary(image.publicId);
+
+      if (result?.result === "ok") {
+        console.log(`Temporary Cloudinary image deleted: ${image.publicId}`);
+      } else {
+        console.error(
+          `Cloudinary deletion was not confirmed: ${image.publicId}`,
+        );
+
+        allDeleted = false;
+      }
+    } catch (error) {
+      allDeleted = false;
+
+      console.error(
+        `Failed to delete Cloudinary image ${image.publicId}:`,
+        error.message,
       );
     }
   }
+
+  return allDeleted;
 };
 
 export const cleanupExpiredProcessingBatches = async () => {
@@ -123,15 +188,29 @@ export const cleanupExpiredProcessingBatches = async () => {
 
   for (const batch of expiredBatches) {
     try {
-      // Delete temporary processed images from Cloudinary
-      await cleanupProcessedImages(batch.results);
+      // Delete temporary original images
+      const originalsDeleted = await cleanupCloudinaryImages(batch.images);
 
-      console.log(`Temporary processed images cleaned for batch ${batch._id}`);
+      // Delete temporary processed images
+      const resultsDeleted = await cleanupProcessedImages(batch.results);
 
-      // Delete the processing batch from MongoDB
-      await ProcessingBatch.findByIdAndDelete(batch._id);
+      // Only remove MongoDB document if every Cloudinary
+      // deletion was successful.
+      if (!originalsDeleted || !resultsDeleted) {
+        console.error(
+          `Some Cloudinary images could not be deleted for batch ${batch._id}`,
+        );
 
-      console.log(`Processing batch deleted from MongoDB: ${batch._id}`);
+        continue;
+      }
+
+      const deletedBatch = await ProcessingBatch.findByIdAndDelete(batch._id);
+
+      if (deletedBatch) {
+        console.log(`Processing batch deleted from MongoDB: ${batch._id}`);
+      } else {
+        console.log(`Processing batch was already deleted: ${batch._id}`);
+      }
     } catch (error) {
       console.error(`Failed to clean batch ${batch._id}:`, error.message);
     }

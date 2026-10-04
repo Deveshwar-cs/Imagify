@@ -100,19 +100,6 @@ const imageWorker = new Worker(
     if (!batch) {
       throw new Error(`Processing batch not found: ${batchId}`);
     }
-
-    if (sourcePublicId) {
-      try {
-        await deleteFromCloudinary(sourcePublicId);
-
-        console.log(`Deleted temporary Cloudinary original: ${sourcePublicId}`);
-      } catch (cloudinaryError) {
-        console.error(
-          `Failed to delete temporary Cloudinary original ${sourcePublicId}:`,
-          cloudinaryError.message,
-        );
-      }
-    }
     console.log(
       `Batch ${batchId}: ${batch.completedImages}/${batch.totalImages} completed`,
     );
@@ -125,11 +112,6 @@ const imageWorker = new Worker(
 
     if (processedImages >= batch.totalImages) {
       console.log(`Batch ${batchId} has finished processing`);
-
-      const cleanupAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-
-      console.log("Current time:", new Date());
-      console.log("Cleanup time:", cleanupAt);
 
       const finalStatus = batch.failedImages > 0 ? "failed" : "completed";
       const completedBatch = await ProcessingBatch.findOneAndUpdate(

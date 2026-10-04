@@ -201,7 +201,6 @@ export const queueImageProcessing = async (req, res) => {
         file.buffer,
         "imagify/processing/originals",
       );
-
       uploadedPublicIds.push(cloudinaryResult.public_id);
 
       // ----------------------------------------------------------

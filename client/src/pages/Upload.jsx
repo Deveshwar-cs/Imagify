@@ -16,6 +16,7 @@ import QualityPanel from "../components/upload/QualityPanel";
 import UpscalePanel from "../components/upload/UpscalePanel";
 import ProcessingError from "../components/upload/ProcessingError";
 import ProcessingProgress from "../components/upload/ProcessingProgress";
+import useAuth from "../hooks/useAuth";
 
 const Upload = () => {
   const {
@@ -57,6 +58,10 @@ const Upload = () => {
     handleShare,
     handleCopyShareUrl,
   } = useImageShare(batchId, batchStatus);
+
+  const {user} = useAuth();
+
+  const isLoggedIn = Boolean(user);
 
   const {savingImageId, saveError, savedImages, handleSaveProcessedImage} =
     useImageStorage();
@@ -248,14 +253,16 @@ const Upload = () => {
 
               {/* Share Whole Batch */}
 
-              <button
-                type="button"
-                onClick={handleShare}
-                disabled={shareLoading}
-                className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {shareLoading ? "Creating share link..." : "Share Results"}
-              </button>
+              {isLoggedIn && (
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  disabled={shareLoading}
+                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {shareLoading ? "Creating share link..." : "Share Results"}
+                </button>
+              )}
             </div>
 
             {/* ========================================================
@@ -440,21 +447,22 @@ const Upload = () => {
                         </a>
 
                         {/* SAVE TO STORAGE */}
-
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleSaveProcessedImage(batchId, resultId)
-                          }
-                          disabled={isSaving || isSaved}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isSaving
-                            ? "Saving..."
-                            : isSaved
-                              ? "Saved to Storage"
-                              : "Save to Storage"}
-                        </button>
+                        {isLoggedIn && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleSaveProcessedImage(batchId, resultId)
+                            }
+                            disabled={isSaving || isSaved}
+                            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isSaving
+                              ? "Saving..."
+                              : isSaved
+                                ? "Saved to Storage"
+                                : "Save to Storage"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

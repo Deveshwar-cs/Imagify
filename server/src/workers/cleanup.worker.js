@@ -25,7 +25,6 @@ const cleanupWorker = new Worker(
 const startCleanupWorker = async () => {
   try {
     await connectDB();
-
     await cleanupQueue.upsertJobScheduler(
       "processing-cleanup-scheduler",
       {every: 60 * 60 * 1000},
