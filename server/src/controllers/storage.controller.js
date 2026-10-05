@@ -11,6 +11,7 @@ import {
   uploadToCloudinary,
   cleanupTempFile,
 } from "../services/image.service.js";
+import cloudinary from "../config/cloudinary.js";
 
 export const uploadStoredImage = async (req, res) => {
   try {

@@ -3,7 +3,6 @@ import sharp from "sharp";
 
 import Share from "../models/share.model.js";
 import ProcessingBatch from "../models/processing.batch.model.js";
-
 import {uploadBufferToCloudinary} from "../services/image.service.js";
 
 // =========================================
@@ -102,11 +101,13 @@ export const createShare = async (req, res) => {
 
     const shareUrl = `${process.env.CLIENT_URL}/share/${token}`;
 
+    // -----------------------------------------
+    // RESPONSE
+    // -----------------------------------------
+
     return res.status(201).json({
       success: true,
-
       message: "Share link created successfully.",
-
       share: {
         token: share.token,
         expiresAt: share.expiresAt,
@@ -214,6 +215,11 @@ export const getSharedResults = async (req, res) => {
               width: processedImage.width,
               height: processedImage.height,
               mimeType: processedImage.mimeType,
+
+              // Do not expose Cloudinary URL directly.
+              // Frontend can request the image through
+              // the protected share endpoint.
+              url: `/share/${token}/image/${processedImage._id}`,
             }
           : null,
       };
@@ -455,26 +461,37 @@ export const createScreenshotShare = async (req, res) => {
 
       status: "completed",
 
+      // IMPORTANT:
+      // According to your schema, images does NOT
+      // have width or height fields.
       images: [
         {
           originalName,
           mimeType: req.file.mimetype,
+          publicId: result.public_id,
           size: req.file.size,
-          width: metadata.width,
-          height: metadata.height,
           url: result.secure_url,
         },
       ],
 
+      // width and height belong here because
+      // results schema contains these fields.
       results: [
         {
           originalName,
+
           operation: "screenshot",
+
           fileName: result.public_id,
+
           url: result.secure_url,
+
           size: req.file.size,
+
           width: metadata.width,
+
           height: metadata.height,
+
           mimeType: req.file.mimetype,
         },
       ],
@@ -507,6 +524,10 @@ export const createScreenshotShare = async (req, res) => {
       batchId: batch._id,
       expiresAt,
     });
+
+    // -----------------------------------------
+    // CREATE URL
+    // -----------------------------------------
 
     const shareUrl = `${process.env.CLIENT_URL}/share/${token}`;
 

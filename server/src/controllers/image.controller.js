@@ -259,7 +259,6 @@ export const queueImageProcessing = async (req, res) => {
         options,
         batchId: batch._id.toString(),
       });
-      console.log(job);
       jobs.push(job);
     }
 
