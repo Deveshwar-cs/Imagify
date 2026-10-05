@@ -82,6 +82,29 @@ const Upload = () => {
     return `${(bytes / Math.pow(1024, index)).toFixed(2)} ${units[index]}`;
   };
 
+  const handleDownload = async (url) => {
+    try {
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error("Failed to download image.");
+      }
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = blobUrl;
+      link.download = "imagify-image.jpg";
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("Image download error:", error);
+    }
+  };
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
       {/* ============================================================
@@ -427,7 +450,7 @@ const Upload = () => {
                       <div className="grid gap-3 sm:grid-cols-2">
                         {/* DOWNLOAD */}
 
-                        <a
+                        {/* <a
                           href={processedImage.url}
                           download={processedImage.fileName}
                           target="_blank"
@@ -435,7 +458,13 @@ const Upload = () => {
                           className="block w-full rounded-xl bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-700"
                         >
                           Download
-                        </a>
+                        </a> */}
+                        <button
+                          onClick={() => handleDownload(processedImage.url)}
+                          className="block w-full rounded-xl bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-700"
+                        >
+                          Download Image
+                        </button>
 
                         {/* SAVE TO STORAGE */}
                         {isLoggedIn && (

@@ -15,6 +15,31 @@ const NotificationResults = () => {
 
   const [error, setError] = useState("");
 
+  const handleDownload = async (url) => {
+    try {
+      const response = await fetch(url);
+
+      const blob = await response.blob();
+
+      const blobUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+
+      link.href = blobUrl;
+      link.download = "Imagify_image_screenshot.jpg";
+
+      document.body.appendChild(link);
+
+      link.click();
+
+      link.remove();
+
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error("Image download error", error);
+    }
+  };
+
   const formatFileSize = (bytes) => {
     if (!bytes) {
       return "0 Bytes";
@@ -255,7 +280,7 @@ const NotificationResults = () => {
                   {/* Download */}
 
                   <div className="border-t border-slate-200 bg-white p-4">
-                    <a
+                    {/* <a
                       href={processedImage.url}
                       download={processedImage.fileName}
                       target="_blank"
@@ -263,7 +288,14 @@ const NotificationResults = () => {
                       className="block w-full rounded-xl bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-700"
                     >
                       Download
-                    </a>
+                    </a> */}
+
+                    <button
+                      onClick={() => handleDownload(processedImage.url)}
+                      className="block w-full rounded-xl cursor-pointer bg-indigo-600 px-4 py-3 text-center text-sm font-semibold text-white transition hover:bg-indigo-700"
+                    >
+                      Download Image
+                    </button>
                   </div>
                 </div>
               );

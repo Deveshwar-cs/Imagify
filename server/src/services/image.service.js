@@ -188,15 +188,23 @@ export const cleanupExpiredProcessingBatches = async () => {
 
   for (const batch of expiredBatches) {
     try {
-      // Delete temporary original images
-      const originalsDeleted = await cleanupCloudinaryImages(batch.images);
+      let allDeleted = true;
+      console.log("Batch operation =====");
+      console.log(batch.operation);
+      if (batch.operation === "screenshot") {
+        allDeleted = await cleanupProcessedImages(batch.results);
+      } else {
+        // Delete temporary original images
+        const originalsDeleted = await cleanupCloudinaryImages(batch.images);
 
-      // Delete temporary processed images
-      const resultsDeleted = await cleanupProcessedImages(batch.results);
+        // Delete temporary processed images
+        const resultsDeleted = await cleanupProcessedImages(batch.results);
 
+        allDeleted = originalsDeleted && allDeleted;
+      }
       // Only remove MongoDB document if every Cloudinary
       // deletion was successful.
-      if (!originalsDeleted || !resultsDeleted) {
+      if (!allDeleted) {
         console.error(
           `Some Cloudinary images could not be deleted for batch ${batch._id}`,
         );

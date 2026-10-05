@@ -486,7 +486,7 @@ export const createScreenshotShare = async (req, res) => {
           mimeType: req.file.mimetype,
         },
       ],
-
+      cleanupAt: new Date(Date.now() + 60 * 60 * 1000),
       totalImages: 1,
       completedImages: 1,
       failedImages: 0,
