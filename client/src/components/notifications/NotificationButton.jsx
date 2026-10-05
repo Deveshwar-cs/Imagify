@@ -1,11 +1,28 @@
-import {useState} from "react";
+import {useState, useEffect} from "react";
 
-import {subscribeToPush} from "../../services/push";
+import {subscribeToPush, getPushSubscriptionStatus} from "../../services/push";
 
 const NotificationButton = () => {
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
   const [enabled, setEnabled] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const checkNotificationStatus = async () => {
+      try {
+        const response = await getPushSubscriptionStatus();
+
+        setEnabled(response.subscribed);
+      } catch (error) {
+        console.error("Failed to check notification status:", error);
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    checkNotificationStatus();
+  }, []);
 
   const handleEnableNotifications = async () => {
     try {
@@ -23,6 +40,14 @@ const NotificationButton = () => {
       setLoading(false);
     }
   };
+
+  if (checking) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+        Checking notification status...
+      </div>
+    );
+  }
 
   if (enabled) {
     return (

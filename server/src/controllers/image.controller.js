@@ -433,7 +433,6 @@ export const getBatchStatus = async (req, res) => {
 export const subscribeToPush = async (req, res) => {
   try {
     const {subscription} = req.body;
-    console.log(subscription);
     if (!subscription?.endpoint) {
       return res.status(400).json({
         success: false,
@@ -446,6 +445,7 @@ export const subscribeToPush = async (req, res) => {
         endpoint: subscription.endpoint,
       },
       {
+        user: req.user._id,
         endpoint: subscription.endpoint,
 
         keys: {
@@ -464,6 +464,7 @@ export const subscribeToPush = async (req, res) => {
       success: true,
       message: "Push subscription saved successfully",
       subscriptionId: savedSubscription._id,
+      subscription,
     });
   } catch (error) {
     console.error("Push subscription error:", error);
@@ -471,6 +472,25 @@ export const subscribeToPush = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to save push subscription",
+    });
+  }
+};
+
+/**
+ * --------------------------------------------------------------------------
+ * Get subscription status
+ * --------------------------------------------------------------------------
+ */
+
+export const getPushSubscriptionStatus = async (req, res) => {
+  try {
+    const subscription = await PushSubscription.findOne({user: req.user._id});
+    console.log(subscription);
+    return res.status(200).json({subscribed: Boolean(subscription)});
+  } catch (error) {
+    console.error("Failed to check push subscription status:", error);
+    return res.status(500).json({
+      message: "Failed to check notification status",
     });
   }
 };

@@ -16,7 +16,10 @@ const useAuth = () => {
           setUser(null);
         }
       } catch (error) {
-        console.log("Authentication error:", error);
+        if (error.response?.status !== 401) {
+          console.error("Authentication error:", error);
+        }
+
         setUser(null);
       } finally {
         setLoading(false);

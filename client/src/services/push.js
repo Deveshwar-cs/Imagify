@@ -77,3 +77,9 @@ export const subscribeToPush = async () => {
 
   return subscription;
 };
+
+export const getPushSubscriptionStatus = async () => {
+  const response = await api.get("/images/subscription/status");
+
+  return response.data;
+};

@@ -7,7 +7,6 @@ import useImageStorage from "../hooks/upload/useImageStorage";
 
 import UploadHeader from "../components/upload/UploadHeader";
 import UploadDropzone from "../components/upload/UploadDropzone";
-// import SelectedFiles from "../components/upload/SelectedFiles";
 import UploadedImages from "../components/upload/UploadedImages";
 import ProcessingOptions from "../components/upload/ProcessingOptions";
 import ResizePanel from "../components/upload/ResizePanel";
@@ -23,10 +22,7 @@ const Upload = () => {
     files,
     previews,
     selectedImages,
-    // loading,
     handleFileChange,
-    // removeFile,
-    // uploadError,
     toggleImageSelection,
     handleSelectAll,
     handleClearSelection,
@@ -120,15 +116,10 @@ const Upload = () => {
             UPLOAD CARD
         ============================================================ */}
 
-        <UploadDropzone onFileChange={handleFileChange} error={error}>
-          {/* <SelectedFiles
-            previews={previews}
-            files={files}
-            onRemove={removeFile}
-            loading={loading}
-            uploadError={uploadError}
-          /> */}
-        </UploadDropzone>
+        <UploadDropzone
+          onFileChange={handleFileChange}
+          error={error}
+        ></UploadDropzone>
 
         {/* ============================================================
             SELECTED IMAGES

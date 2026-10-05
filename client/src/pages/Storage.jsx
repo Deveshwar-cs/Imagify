@@ -62,9 +62,11 @@ const Storage = ({refreshKey}) => {
   }, []);
 
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      loadStorageData();
+    if (authLoading || !isAuthenticated) {
+      return;
     }
+
+    loadStorageData();
   }, [authLoading, isAuthenticated, refreshKey, loadStorageData]);
 
   // ============================================
@@ -649,7 +651,7 @@ const Storage = ({refreshKey}) => {
                         src={image.url}
                         alt={image.originalName || "Stored image"}
                         loading="lazy"
-                        className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                        className="h-full w-full object-contain transition duration-500 group-hover:scale-105"
                       />
 
                       <div className="absolute left-3 top-3 rounded-full bg-white/90 px-3 py-1 text-xs font-semibold text-emerald-600 shadow-sm backdrop-blur">

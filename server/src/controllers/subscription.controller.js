@@ -392,8 +392,6 @@ export const cancelSubscription = async (req, res) => {
 
     const subscriptionId = user.subscription?.stripeSubscriptionId;
 
-    console.log("Subscription ID:", subscriptionId);
-
     if (!subscriptionId) {
       return res.status(400).json({
         success: false,
@@ -406,8 +404,6 @@ export const cancelSubscription = async (req, res) => {
     // -----------------------------------------
 
     let subscription = await stripe.subscriptions.retrieve(subscriptionId);
-
-    console.log("Subscription status:", subscription.status);
 
     if (subscription.status !== "active") {
       return res.status(400).json({
@@ -440,18 +436,12 @@ export const cancelSubscription = async (req, res) => {
         ? subscription.schedule
         : subscription.schedule?.id;
 
-    console.log("Subscription schedule:", scheduleId);
-
     // -----------------------------------------
     // Release subscription schedule
     // -----------------------------------------
 
     if (scheduleId) {
-      console.log("Releasing subscription schedule:", scheduleId);
-
       await stripe.subscriptionSchedules.release(scheduleId);
-
-      console.log("Subscription schedule released");
 
       // Retrieve subscription again because the
       // Stripe subscription object has changed.
@@ -467,11 +457,6 @@ export const cancelSubscription = async (req, res) => {
       {
         cancel_at_period_end: true,
       },
-    );
-
-    console.log(
-      "Subscription cancellation scheduled:",
-      updatedSubscription.cancel_at_period_end,
     );
 
     // -----------------------------------------
@@ -589,8 +574,6 @@ export const scheduleDowngrade = async (req, res) => {
     }
 
     const currentItem = subscription.items.data[0];
-    console.log("Current item:--");
-    console.log(currentItem);
 
     if (!currentItem) {
       return res.status(400).json({
@@ -797,8 +780,6 @@ export const cancelScheduledPlan = async (req, res) => {
     user.subscription.scheduledPlanDate = null;
 
     await user.save();
-
-    console.log("Scheduled plan cancelled successfully");
 
     return res.status(200).json({
       success: true,

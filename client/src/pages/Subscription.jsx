@@ -156,8 +156,19 @@ const Subscription = () => {
                 return (
                   <div
                     key={plan.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+                    className={`relative rounded-2xl border p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md ${
+                      isCurrentPlan
+                        ? "border-slate-900 bg-slate-50 shadow-md"
+                        : "border-slate-200 bg-white"
+                    }`}
                   >
+                    {/* Current Plan Badge */}
+                    {isCurrentPlan && (
+                      <div className="absolute -top-3 left-6 rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">
+                        Current Plan
+                      </div>
+                    )}
+
                     {/* Plan Name */}
                     <h3 className="text-xl font-semibold text-slate-900">
                       {plan.name}
@@ -179,7 +190,7 @@ const Subscription = () => {
                       </span>
                     </div>
 
-                    <div className="my-6 h-px bg-slate-100" />
+                    <div className="my-6 h-px bg-slate-200" />
 
                     {/* Storage */}
                     <div className="flex items-center justify-between">
@@ -217,9 +228,11 @@ const Subscription = () => {
                         hasActiveSubscription || loadingPlan === plan.id
                       }
                       className={`mt-7 w-full rounded-xl px-5 py-3 font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                        hasActiveSubscription
-                          ? "border border-slate-200 bg-slate-100 text-slate-500"
-                          : "bg-slate-900 text-white hover:bg-slate-700"
+                        isCurrentPlan
+                          ? "border border-slate-300 bg-slate-200 text-slate-700"
+                          : hasActiveSubscription
+                            ? "border border-slate-200 bg-slate-100 text-slate-500"
+                            : "bg-slate-900 text-white hover:bg-slate-700"
                       }`}
                     >
                       {hasActiveSubscription

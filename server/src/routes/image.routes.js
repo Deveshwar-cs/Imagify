@@ -7,6 +7,7 @@ import {
   queueImageProcessing,
   subscribeToPush,
   testPushNotification,
+  getPushSubscriptionStatus,
 } from "../controllers/image.controller.js";
 
 import {
@@ -43,9 +44,11 @@ router.get("/batches/:batchId", identifyUserOrGuest, getBatchStatus);
 // PUSH NOTIFICATIONS
 // =========================================
 
-router.post("/push/subscribe", subscribeToPush);
+router.post("/push/subscribe", authenticateUser, subscribeToPush);
 
-router.post("/push/test", testPushNotification);
+router.post("/push/test", authenticateUser, testPushNotification);
+
+router.get("/subscription/status", authenticateUser, getPushSubscriptionStatus);
 
 // =========================================
 // SHARING

@@ -174,7 +174,6 @@ export const getSharedResults = async (req, res) => {
     // -----------------------------------------
 
     const batch = await ProcessingBatch.findById(share.batchId);
-
     if (!batch) {
       return res.status(404).json({
         success: false,
@@ -362,7 +361,6 @@ export const getSharedProcessedImage = async (req, res) => {
     // -----------------------------------------
     // CONVERT TO BUFFER
     // -----------------------------------------
-
     const imageBuffer = Buffer.from(await cloudinaryResponse.arrayBuffer());
 
     // -----------------------------------------
@@ -460,10 +458,6 @@ export const createScreenshotShare = async (req, res) => {
       guestId: null,
 
       status: "completed",
-
-      // IMPORTANT:
-      // According to your schema, images does NOT
-      // have width or height fields.
       images: [
         {
           originalName,
@@ -473,9 +467,6 @@ export const createScreenshotShare = async (req, res) => {
           url: result.secure_url,
         },
       ],
-
-      // width and height belong here because
-      // results schema contains these fields.
       results: [
         {
           originalName,

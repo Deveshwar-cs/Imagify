@@ -3,8 +3,6 @@ import api from "./api";
 export const getSubscriptionStatus = async () => {
   const response = await api.get("/subscription/status");
 
-  console.log("subscription status:", response);
-
   return response.data;
 };
 
@@ -13,8 +11,6 @@ export const changeSubscriptionPlan = async (plan) => {
     plan,
   });
 
-  console.log("change subscription plan response:", response);
-
   return response.data;
 };
 
@@ -22,8 +18,6 @@ export const scheduleDowngrade = async (plan) => {
   const response = await api.post("/subscription/downgrade", {
     plan,
   });
-
-  console.log("schedule downgrade response:", response);
 
   return response.data;
 };
@@ -34,8 +28,6 @@ export const scheduleDowngrade = async (plan) => {
 
 export const cancelScheduledPlan = async () => {
   const response = await api.post("/subscription/cancel-scheduled-plan");
-
-  console.log("cancel scheduled plan response:", response);
 
   return response.data;
 };
@@ -62,8 +54,6 @@ export const createCheckoutSession = async (plan) => {
 
 export const previewSubscriptionUpgrade = async (plan) => {
   const response = await api.post("/subscription/preview-upgrade", {plan});
-
-  console.log("subscription upgrade preview:", response);
 
   return response.data;
 };

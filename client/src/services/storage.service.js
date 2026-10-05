@@ -2,13 +2,11 @@ import api from "./api";
 
 export const getStorageUsage = async () => {
   const response = await api.get("/storage/usage");
-  console.log(response);
   return response.data;
 };
 
 export const getStoredImages = async () => {
   const response = await api.get("/storage/images");
-  console.log(response);
 
   return response.data;
 };

@@ -146,11 +146,11 @@ const UploadedImages = ({
                 }`}
               >
                 {/* Image */}
-                <div className="relative aspect-[4/3] overflow-hidden bg-slate-100">
+                <div className="relative aspect-4/3 overflow-hidden bg-slate-100">
                   <img
                     src={preview.url}
                     alt={file.name}
-                    className="h-full w-full object-cover transition duration-500 group-hover:scale-105"
+                    className="h-full w-full object-contain transition duration-500 group-hover:scale-105"
                   />
 
                   {/* Ready Badge */}
